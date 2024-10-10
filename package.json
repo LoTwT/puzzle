@@ -1,0 +1,45 @@
+{
+  "name": "puzzle",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@9.12.1",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "prepare": "simple-git-hooks",
+    "up": "taze latest -I -f",
+    "prettier": "prettier --write .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@unocss/reset": "^0.63.4",
+    "nuxt": "^3.13.2",
+    "vue-router": "latest"
+  },
+  "devDependencies": {
+    "@ayingott/eslint-config": "^1.4.7",
+    "@ayingott/prettier-config": "^1.2.7",
+    "@unocss/nuxt": "^0.63.4",
+    "eslint": "^9.12.0",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "sass": "^1.79.4",
+    "simple-git-hooks": "^2.11.1",
+    "taze": "^0.17.2",
+    "unocss": "^0.63.4",
+    "vue": "^3.5.11"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged"
+  },
+  "lint-staged": {
+    "*": [
+      "eslint --fix",
+      "prettier --write --ignore-unknown"
+    ]
+  },
+  "prettier": "@ayingott/prettier-config"
+}
