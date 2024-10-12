@@ -1,5 +1,7 @@
 <template>
-  <section class="font-mono">
-    <slot />
-  </section>
+  <ClientOnly>
+    <section class="font-mono">
+      <slot />
+    </section>
+  </ClientOnly>
 </template>

@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.12.1",
   "scripts": {
     "build": "nuxt build",
-    "dev": "nuxt dev",
+    "dev": "nuxt dev -o",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@unocss/reset": "^0.63.4",
+    "jimp": "^1.6.0",
     "nuxt": "^3.13.2",
     "vue-router": "latest"
   },
