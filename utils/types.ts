@@ -10,4 +10,5 @@ export interface Puzzle {
   rows: number
   columns: number
   pieceSize: number
+  sourceBase64: string
 }

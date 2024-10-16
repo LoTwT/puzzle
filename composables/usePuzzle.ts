@@ -9,6 +9,7 @@ export function usePuzzle(
     rows: 0,
     columns: 0,
     pieceSize: 0,
+    sourceBase64: "",
   })
 
   const puzzlePieces = ref<PuzzlePiece[]>([])
@@ -25,6 +26,8 @@ export function usePuzzle(
       const image = await Jimp.read(actualUrl)
       const imageWidth = image.bitmap.width
       const imageHeight = image.bitmap.height
+
+      const sourceBase64 = await image.getBase64(JimpMime.jpeg)
 
       const internalPieceSize = actualPieceSize || gcd(imageWidth, imageHeight)
       const internalPieces: PuzzlePiece[] = []
@@ -60,8 +63,9 @@ export function usePuzzle(
         rows: Math.ceil(imageHeight / internalPieceSize),
         columns: Math.ceil(imageWidth / internalPieceSize),
         pieceSize: internalPieceSize,
+        sourceBase64,
       }
-      puzzlePieces.value = internalPieces
+      puzzlePieces.value = shuffleArray(internalPieces)
       error.value = null
     } catch (e) {
       puzzlePieces.value = []
