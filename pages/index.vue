@@ -6,7 +6,7 @@ const puzzleRef = useTemplateRef("puzzleRef")
 const { puzzle, puzzlePieces, loading } = usePuzzle("/ganyu.jpeg", 200)
 
 const puzzleStyles = computed<CSSProperties>(() => ({
-  gridTemplateColumns: `repeat(${puzzle.value.columns}, minmax(0, 1fr))`,
+  gridTemplateColumns: `repeat(${puzzle.value.columns}, minmax(0, ${puzzle.value.pieceSize}px))`,
 }))
 
 const { result } = useSwap(puzzleRef, puzzlePieces, {
