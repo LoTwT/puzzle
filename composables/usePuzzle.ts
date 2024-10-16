@@ -4,6 +4,13 @@ export function usePuzzle(
   url: MaybeRefOrGetter<string>,
   pieceSize?: MaybeRefOrGetter<number>,
 ) {
+  const puzzle = ref<Puzzle>({
+    id: "",
+    rows: 0,
+    columns: 0,
+    pieceSize: 0,
+  })
+
   const puzzlePieces = ref<PuzzlePiece[]>([])
   const loading = ref(false)
   const error = ref<Error | null>(null)
@@ -40,7 +47,7 @@ export function usePuzzle(
             internalPieces.push({
               id,
               base64: pieceBase64,
-              restored: false,
+              restored: true,
             })
           })
         }
@@ -48,6 +55,12 @@ export function usePuzzle(
 
       await Promise.all(tasks.map((task) => task()))
 
+      puzzle.value = {
+        id: actualUrl,
+        rows: Math.ceil(imageHeight / internalPieceSize),
+        columns: Math.ceil(imageWidth / internalPieceSize),
+        pieceSize: internalPieceSize,
+      }
       puzzlePieces.value = internalPieces
       error.value = null
     } catch (e) {
@@ -59,6 +72,7 @@ export function usePuzzle(
   })
 
   return {
+    puzzle,
     puzzlePieces,
     loading,
     error,

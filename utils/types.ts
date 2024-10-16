@@ -3,3 +3,11 @@ export interface PuzzlePiece {
   base64: string
   restored: boolean
 }
+
+export interface Puzzle {
+  id: string
+  // pieces: PuzzlePiece[]
+  rows: number
+  columns: number
+  pieceSize: number
+}
