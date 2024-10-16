@@ -52,7 +52,7 @@ const isPuzzleRestored = computed(() =>
     <div
       ref="puzzleRef"
       class="puzzle grid transition-all duration-1200"
-      :class="[isPuzzleRestored ? 'gap-0 brightness-100' : 'gap-1']"
+      :class="[isPuzzleRestored ? 'gap-0' : 'gap-1']"
     >
       <div
         v-for="piece in result"
