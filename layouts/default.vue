@@ -1,6 +1,6 @@
 <template>
   <ClientOnly>
-    <section class="font-mono flex justify-center items-center">
+    <section class="font-mono flex flex-col justify-center items-center">
       <slot />
     </section>
   </ClientOnly>

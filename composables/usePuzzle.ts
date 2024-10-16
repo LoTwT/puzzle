@@ -43,14 +43,14 @@ export function usePuzzle(
 
           const piece = image.clone().crop({ x, y, w, h })
           const id =
-            `${Math.floor(x / internalPieceSize)}-${Math.floor(y / internalPieceSize)}` satisfies PuzzlePiece["id"]
+            `${Math.floor(y / internalPieceSize)}-${Math.floor(x / internalPieceSize)}` satisfies PuzzlePiece["id"]
 
           tasks.push(async () => {
             const pieceBase64 = await piece.getBase64(JimpMime.jpeg)
             internalPieces.push({
               id,
               base64: pieceBase64,
-              restored: true,
+              restored: false,
             })
           })
         }

@@ -13,44 +13,45 @@ export function useSwap<T>(
   const instance = ref<Sortable | null>(null)
   const result = ref<T[]>([])
 
-  watch(
-    [() => toValue(el), () => toValue(source), () => toValue(options)],
-    ([actualEl, actualSource, actualOptions]) => {
-      if (!actualEl) return
+  watchEffect(() => {
+    const actualEl = toValue(el)
 
-      result.value = actualSource
+    if (!actualEl) return
 
+    const actualSource = toValue(source)
+    const actualOptions = toValue(options)
+
+    result.value = actualSource
+
+    if (instance.value) {
+      instance.value.destroy()
+    }
+
+    instance.value = new Sortable(actualEl, {
+      ...actualOptions,
+      swap: true,
+      onEnd: (e) => {
+        const { oldIndex, newIndex } = e
+
+        if (oldIndex == null || newIndex == null) return
+
+        const temp = result.value.slice()
+
+        ;[temp[oldIndex], temp[newIndex]] = [temp[newIndex], temp[oldIndex]]
+
+        result.value = temp
+
+        actualOptions?.onEnd?.(e)
+      },
+    })
+
+    onWatcherCleanup(() => {
       if (instance.value) {
         instance.value.destroy()
+        instance.value = null
       }
-
-      instance.value = new Sortable(actualEl, {
-        ...actualOptions,
-        swap: true,
-        onEnd: (e) => {
-          const { oldIndex, newIndex } = e
-
-          if (oldIndex == null || newIndex == null) return
-
-          const temp = result.value.slice()
-
-          ;[temp[oldIndex], temp[newIndex]] = [temp[newIndex], temp[oldIndex]]
-
-          result.value = temp
-        },
-      })
-
-      onWatcherCleanup(() => {
-        if (instance.value) {
-          instance.value.destroy()
-          instance.value = null
-        }
-      })
-    },
-    {
-      deep: true,
-    },
-  )
+    })
+  })
 
   return {
     instance,
