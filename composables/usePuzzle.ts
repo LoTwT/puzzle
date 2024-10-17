@@ -75,10 +75,16 @@ export function usePuzzle(
     }
   })
 
+  const refresh = () => {
+    const pieces = puzzlePieces.value.slice()
+    puzzlePieces.value = shuffleArray(pieces)
+  }
+
   return {
     puzzle,
     puzzlePieces,
     loading,
     error,
+    refresh,
   }
 }

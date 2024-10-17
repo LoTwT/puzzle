@@ -53,8 +53,13 @@ export function useSwap<T>(
     })
   })
 
+  const reset = () => {
+    result.value = toValue(source)
+  }
+
   return {
     instance,
     result,
+    reset,
   }
 }

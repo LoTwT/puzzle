@@ -3,7 +3,7 @@ import type { CSSProperties } from "vue"
 
 const puzzleRef = useTemplateRef("puzzleRef")
 
-const { puzzle, puzzlePieces, loading } = usePuzzle("/ganyu.jpeg", 400)
+const { puzzle, puzzlePieces, loading, refresh } = usePuzzle("/ganyu.jpeg", 400)
 
 const puzzleStyles = computed<CSSProperties>(() => ({
   gridTemplateColumns: `repeat(${puzzle.value.columns}, minmax(0, ${puzzle.value.pieceSize}px))`,
@@ -11,7 +11,7 @@ const puzzleStyles = computed<CSSProperties>(() => ({
 
 const DraggableClass = "piece-draggable"
 
-const { result } = useSwap(puzzleRef, puzzlePieces, {
+const { result, reset } = useSwap(puzzleRef, puzzlePieces, {
   animation: 150,
   draggable: `.${DraggableClass}`,
   onEnd: (e) => {
@@ -31,15 +31,9 @@ function checkPiece(index: number) {
   result.value[index].restored = isRestored
 }
 
-watch(
-  result,
-  () => {
-    result.value.forEach((_, index) => checkPiece(index))
-  },
-  {
-    once: true,
-  },
-)
+watch(result, () => {
+  result.value.forEach((_, index) => checkPiece(index))
+})
 
 const isPuzzleRestored = computed(() =>
   result.value.every((piece) => piece.restored),
@@ -47,6 +41,7 @@ const isPuzzleRestored = computed(() =>
 </script>
 
 <template>
+  <!-- Puzzle -->
   <template v-if="loading">loading...</template>
   <template v-else>
     <div
@@ -57,17 +52,28 @@ const isPuzzleRestored = computed(() =>
       <div
         v-for="piece in result"
         :key="piece.id"
+        class="transition-all duration-1200"
         :class="[
-          piece.restored && !isPuzzleRestored
-            ? 'brightness-30'
-            : `brightness-100 ${DraggableClass}`,
+          piece.restored && 'brightness-30',
           !isPuzzleRestored && 'b-1 b-gray-300',
+          !(piece.restored || isPuzzleRestored) && DraggableClass,
+          isPuzzleRestored && 'brightness-100!',
         ]"
       >
         <img :src="piece.base64" />
       </div>
     </div>
   </template>
+
+  <!-- GamePad -->
+  <div class="mt-8 flex gap-2">
+    <BitButton @click="reset">
+      <div class="min-w-16">Reset</div>
+    </BitButton>
+    <BitButton @click="refresh">
+      <div class="min-w-16">Refresh</div>
+    </BitButton>
+  </div>
 </template>
 
 <style scoped lang="scss">
