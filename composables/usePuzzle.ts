@@ -1,8 +1,10 @@
 import { Jimp, JimpMime } from "jimp"
 
+const MIN_PIECE_SIZE = 50
+
 export function usePuzzle(
   url: MaybeRefOrGetter<string>,
-  pieceSize?: MaybeRefOrGetter<number>,
+  pieceSize?: MaybeRefOrGetter<number | undefined>,
 ) {
   const puzzle = ref<Puzzle>({
     id: "",
@@ -29,7 +31,10 @@ export function usePuzzle(
 
       const sourceBase64 = await image.getBase64(JimpMime.jpeg)
 
-      const internalPieceSize = actualPieceSize || gcd(imageWidth, imageHeight)
+      const internalPieceSize =
+        actualPieceSize ||
+        Math.max(gcd(imageWidth, imageHeight), MIN_PIECE_SIZE)
+
       const internalPieces: PuzzlePiece[] = []
 
       const tasks: (() => Promise<void>)[] = []
