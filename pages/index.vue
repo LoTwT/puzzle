@@ -19,7 +19,7 @@ const DraggableClass = "piece-draggable"
 const { result, reset } = useSwap(puzzleRef, puzzlePieces, {
   animation: 150,
   draggable: `.${DraggableClass}`,
-  onEnd: (e) => {
+  onUpdate: (e) => {
     const { oldIndex, newIndex } = e
 
     checkPiece(oldIndex!)
@@ -83,6 +83,7 @@ const isPuzzleRestored = computed(() =>
         <option :value="undefined">auto</option>
         <option :value="100">100</option>
         <option :value="200">200</option>
+        <option :value="300">300</option>
         <option :value="400">400</option>
       </select>
     </div>

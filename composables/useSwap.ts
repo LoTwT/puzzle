@@ -1,9 +1,6 @@
-import Sortable, { type Options, Swap } from "sortablejs"
+import type { Options } from "sortablejs"
+import Sortable from "sortablejs/modular/sortable.complete.esm"
 import { onWatcherCleanup } from "vue"
-
-if (import.meta.client) {
-  Sortable.mount(new Swap())
-}
 
 export function useSwap<T>(
   el: MaybeRefOrGetter<HTMLElement | null>,
@@ -30,7 +27,7 @@ export function useSwap<T>(
     instance.value = new Sortable(actualEl, {
       ...actualOptions,
       swap: true,
-      onEnd: (e) => {
+      onUpdate: (e) => {
         const { oldIndex, newIndex } = e
 
         if (oldIndex == null || newIndex == null) return
@@ -41,7 +38,7 @@ export function useSwap<T>(
 
         result.value = temp
 
-        actualOptions?.onEnd?.(e)
+        actualOptions?.onUpdate?.(e)
       },
     })
 
