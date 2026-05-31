@@ -10,15 +10,22 @@ export function usePuzzle(
     pieceWidth: 0,
     pieceHeight: 0,
     aspectRatio: 1,
-    sourceBase64: "",
+    sourceUrl: "",
   })
 
   const puzzlePieces = ref<PuzzlePiece[]>([])
   const loading = ref(true)
   const error = ref<Error | null>(null)
 
-  watchEffect(async () => {
+  watchEffect(async (onCleanup) => {
     if (import.meta.server) return
+
+    let cancelled = false
+    let cancelImageLoad = () => {}
+    onCleanup(() => {
+      cancelled = true
+      cancelImageLoad()
+    })
 
     try {
       loading.value = true
@@ -27,48 +34,37 @@ export function usePuzzle(
       const actualGridSize = toValue(gridSize)
       const actualFitMode = toValue(fitMode) ?? "contain"
 
-      const image = await loadImage(actualUrl)
+      const image = await loadImage(actualUrl, (cleanup) => {
+        cancelImageLoad = cleanup
+      })
+      if (cancelled) return
+
       const imageWidth = image.naturalWidth
       const imageHeight = image.naturalHeight
       const sourceRect = getSourceRect(imageWidth, imageHeight, actualFitMode)
-
-      const sourceBase64 = renderImagePieceToJpeg(
-        image,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height,
-      )
+      const sourceUrl =
+        actualFitMode === "crop"
+          ? renderImageToJpeg(image, sourceRect)
+          : actualUrl
 
       const internalPieces: PuzzlePiece[] = []
-      const tasks: (() => Promise<void>)[] = []
       const pieceSourceWidth = sourceRect.width / actualGridSize
       const pieceSourceHeight = sourceRect.height / actualGridSize
 
       for (let row = 0; row < actualGridSize; row += 1) {
         for (let col = 0; col < actualGridSize; col += 1) {
           const id = `${row}-${col}` satisfies PuzzlePiece["id"]
-          const x = sourceRect.x + col * pieceSourceWidth
-          const y = sourceRect.y + row * pieceSourceHeight
 
-          tasks.push(async () => {
-            const pieceBase64 = renderImagePieceToJpeg(
-              image,
-              x,
-              y,
-              pieceSourceWidth,
-              pieceSourceHeight,
-            )
-            internalPieces.push({
-              id,
-              base64: pieceBase64,
-              restored: false,
-            })
+          internalPieces.push({
+            id,
+            row,
+            column: col,
+            restored: false,
           })
         }
       }
 
-      await Promise.all(tasks.map((task) => task()))
+      if (cancelled) return
 
       puzzle.value = {
         id: actualUrl,
@@ -77,15 +73,17 @@ export function usePuzzle(
         pieceWidth: Math.max(1, Math.round(pieceSourceWidth)),
         pieceHeight: Math.max(1, Math.round(pieceSourceHeight)),
         aspectRatio: sourceRect.width / sourceRect.height,
-        sourceBase64,
+        sourceUrl,
       }
       puzzlePieces.value = shuffleArray(internalPieces)
       error.value = null
     } catch (e) {
+      if (cancelled) return
+
       puzzlePieces.value = []
       error.value = e as Error
     } finally {
-      loading.value = false
+      if (!cancelled) loading.value = false
     }
   })
 
@@ -110,26 +108,41 @@ interface SourceRect {
   height: number
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
+function loadImage(
+  url: string,
+  setCleanup?: (cleanup: () => void) => void,
+): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
+    let settled = false
+
+    setCleanup?.(() => {
+      if (settled) return
+      image.onload = null
+      image.onerror = null
+      image.src = ""
+    })
+
     image.decoding = "async"
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error("Failed to load puzzle image."))
+    image.onload = () => {
+      settled = true
+      resolve(image)
+    }
+    image.onerror = () => {
+      settled = true
+      reject(new Error("Failed to load puzzle image."))
+    }
     image.src = url
   })
 }
 
-function renderImagePieceToJpeg(
+function renderImageToJpeg(
   image: HTMLImageElement,
-  sourceX: number,
-  sourceY: number,
-  width: number,
-  height: number,
+  sourceRect: SourceRect,
 ): string {
   const canvas = document.createElement("canvas")
-  const outputWidth = Math.max(1, Math.round(width))
-  const outputHeight = Math.max(1, Math.round(height))
+  const outputWidth = Math.max(1, Math.round(sourceRect.width))
+  const outputHeight = Math.max(1, Math.round(sourceRect.height))
   canvas.width = outputWidth
   canvas.height = outputHeight
 
@@ -140,10 +153,10 @@ function renderImagePieceToJpeg(
 
   context.drawImage(
     image,
-    sourceX,
-    sourceY,
-    width,
-    height,
+    sourceRect.x,
+    sourceRect.y,
+    sourceRect.width,
+    sourceRect.height,
     0,
     0,
     outputWidth,
