@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract landscape puzzle sample</title>
+  <desc id="desc">A self-owned geometric landscape used as a safe puzzle placeholder.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#8bd4ff"/>
+      <stop offset="0.62" stop-color="#e5f6ff"/>
+      <stop offset="1" stop-color="#fff4d8"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#68c4d9"/>
+      <stop offset="1" stop-color="#3f8f85"/>
+    </linearGradient>
+    <linearGradient id="hillA" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#9fc86a"/>
+      <stop offset="1" stop-color="#4f9b6c"/>
+    </linearGradient>
+    <linearGradient id="hillB" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#d6b15e"/>
+      <stop offset="1" stop-color="#bd6a46"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#sky)"/>
+  <circle cx="930" cy="132" r="74" fill="#ffd36d"/>
+  <circle cx="930" cy="132" r="104" fill="#ffd36d" opacity=".22"/>
+  <path d="M0 310 C120 230 235 238 348 310 C463 382 585 382 706 300 C828 216 982 210 1200 312 L1200 675 L0 675 Z" fill="url(#hillA)"/>
+  <path d="M0 420 C168 320 280 330 410 414 C540 500 673 502 800 410 C932 314 1036 328 1200 430 L1200 675 L0 675 Z" fill="url(#hillB)" opacity=".92"/>
+  <path d="M0 485 C178 454 342 470 520 505 C678 536 832 518 1200 452 L1200 675 L0 675 Z" fill="url(#water)"/>
+  <path d="M96 550 C224 530 332 538 448 564 C588 596 728 594 880 555 C976 530 1072 510 1170 506" fill="none" stroke="#e8fbff" stroke-width="10" stroke-linecap="round" opacity=".7"/>
+  <path d="M116 600 C254 582 350 590 470 616 C596 644 736 648 914 604" fill="none" stroke="#154f55" stroke-width="8" stroke-linecap="round" opacity=".22"/>
+  <path d="M210 272 L270 172 L330 272 Z" fill="#f7efe1"/>
+  <path d="M270 172 L332 272 L394 272 L314 138 Z" fill="#e1d5c3"/>
+  <path d="M156 292 L250 232 L338 292 Z" fill="#5f8061"/>
+  <path d="M744 302 L818 178 L888 302 Z" fill="#f7efe1"/>
+  <path d="M818 178 L888 302 L970 302 L858 130 Z" fill="#d8c9b5"/>
+  <path d="M684 326 L806 250 L938 326 Z" fill="#517a65"/>
+  <g fill="#252119" opacity=".34">
+    <rect x="110" y="104" width="96" height="14" rx="7"/>
+    <rect x="184" y="132" width="170" height="14" rx="7"/>
+    <rect x="410" y="104" width="138" height="14" rx="7"/>
+  </g>
+</svg>

@@ -6,9 +6,12 @@ export interface PuzzlePiece {
 
 export interface Puzzle {
   id: string
-  // pieces: PuzzlePiece[]
   rows: number
   columns: number
-  pieceSize: number
+  pieceWidth: number
+  pieceHeight: number
+  aspectRatio: number
   sourceBase64: string
 }
+
+export type PuzzleFitMode = "contain" | "crop"
