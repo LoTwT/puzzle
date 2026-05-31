@@ -1,0 +1,18 @@
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  simple-git-hooks: true
+minimumReleaseAgeExclude:
+  - lint-staged@17.0.7
+  - tinyexec@1.2.4
+shellEmulator: true
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - chokidar@4.0.3
+  - prettier-plugin-tailwindcss@0.7.4
+  - semver@6.3.1
+  - tinyclip@0.1.13
+onlyBuiltDependencies:
+  - "@parcel/watcher"
+  - esbuild
+  - simple-git-hooks
