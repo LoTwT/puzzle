@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CSSProperties } from "vue"
+import { useElementSize, useWindowSize } from "@vueuse/core"
 
 interface PuzzleImage {
   kind: "sample" | "upload"
@@ -11,6 +12,8 @@ interface ImageInfo {
   width: number
   height: number
 }
+
+type StyleWithVars = CSSProperties & Record<`--${string}`, string>
 
 const sampleImageUrl = "/sample-puzzle.svg"
 const maxUploadBytes = 12 * 1024 * 1024
@@ -42,7 +45,11 @@ const pendingObjectUrlRevokeTimers = new Map<
 >()
 
 const puzzleRef = useTemplateRef("puzzleRef")
+const boardSlotRef = useTemplateRef<HTMLElement>("boardSlotRef")
 const fileInputRef = useTemplateRef<HTMLInputElement>("fileInputRef")
+const { width: windowWidth, height: windowHeight } = useWindowSize()
+const { width: boardSlotWidth, height: boardSlotHeight } =
+  useElementSize(boardSlotRef)
 
 const activeDifficulty = computed(
   () =>
@@ -70,10 +77,47 @@ const { puzzle, puzzlePieces, loading, error, refresh } = usePuzzle(
   fitMode,
 )
 
-const puzzleStyles = computed<CSSProperties>(() => ({
-  gridTemplateColumns: `repeat(${puzzle.value.columns}, minmax(0, 1fr))`,
-  aspectRatio: `${puzzle.value.aspectRatio}`,
+const puzzleBoardSize = computed(() => {
+  const fallbackWidth = Math.min(Math.max(windowWidth.value - 40, 240), 760)
+  const fallbackHeight = Math.max(windowHeight.value - 240, 220)
+  const maxWidth = Math.min(boardSlotWidth.value || fallbackWidth, 760)
+  const maxHeight = boardSlotHeight.value || fallbackHeight
+  const aspectRatio = puzzle.value.aspectRatio || 16 / 9
+  let width = maxWidth
+  let height = width / aspectRatio
+
+  if (height > maxHeight) {
+    height = maxHeight
+    width = height * aspectRatio
+  }
+
+  return {
+    width: Math.max(1, Math.floor(width)),
+    height: Math.max(1, Math.floor(height)),
+  }
+})
+
+const puzzleStyles = computed<StyleWithVars>(() => ({
+  "gridTemplateColumns": `repeat(${puzzle.value.columns}, minmax(0, 1fr))`,
+  "aspectRatio": `${puzzle.value.aspectRatio}`,
+  "inlineSize": `${puzzleBoardSize.value.width}px`,
+  "blockSize": `${puzzleBoardSize.value.height}px`,
+  "--puzzle-source": toCssUrl(puzzle.value.sourceUrl),
+  "--puzzle-bg-size": `${puzzle.value.columns * 100}% ${
+    puzzle.value.rows * 100
+  }%`,
 }))
+
+const minimumPlayablePieceSize = 40
+
+const showSmallPieceWarning = computed(() => {
+  const minPieceSize = Math.min(
+    puzzleBoardSize.value.width / puzzle.value.columns,
+    puzzleBoardSize.value.height / puzzle.value.rows,
+  )
+
+  return minPieceSize > 0 && minPieceSize < minimumPlayablePieceSize
+})
 
 const previewAspectRatio = computed(() => {
   if (!imageInfo.value) return 16 / 9
@@ -127,6 +171,29 @@ watch(result, () => {
 const isPuzzleRestored = computed(() =>
   result.value.every((piece) => piece.restored),
 )
+
+function getPieceStyles(piece: PuzzlePiece): CSSProperties {
+  return {
+    backgroundImage: "var(--puzzle-source)",
+    backgroundPosition: getPieceBackgroundPosition(piece),
+    backgroundSize: "var(--puzzle-bg-size)",
+  }
+}
+
+function getPieceBackgroundPosition(piece: PuzzlePiece) {
+  const x =
+    puzzle.value.columns <= 1
+      ? 0
+      : (piece.column / (puzzle.value.columns - 1)) * 100
+  const y =
+    puzzle.value.rows <= 1 ? 0 : (piece.row / (puzzle.value.rows - 1)) * 100
+
+  return `${x}% ${y}%`
+}
+
+function toCssUrl(url: string) {
+  return `url("${url.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}")`
+}
 
 watch(
   selectedImage,
@@ -300,16 +367,19 @@ function readImageInfo(
 
 <template>
   <main
-    class="mx-auto min-h-screen w-full max-w-5xl px-5 py-8 text-neutral-900"
+    class="puzzle-page mx-auto min-h-screen w-full max-w-5xl px-5 py-8 text-neutral-900"
+    :class="{ 'puzzle-page--playing': isPlaying }"
   >
-    <header class="mb-7 max-w-2xl">
+    <header class="puzzle-page__header mb-7 max-w-2xl">
       <p
-        class="mb-2 font-mono text-xs tracking-wide text-neutral-500 uppercase"
+        class="puzzle-page__kicker mb-2 font-mono text-xs tracking-wide text-neutral-500 uppercase"
       >
         Local image puzzle
       </p>
-      <h1 class="font-700 tracking-none m-0 text-4xl">Puzzle</h1>
-      <p class="mt-3 text-base leading-7 text-neutral-600">
+      <h1 class="puzzle-page__title font-700 tracking-none m-0 text-4xl">
+        Puzzle
+      </h1>
+      <p v-if="!isPlaying" class="mt-3 text-base leading-7 text-neutral-600">
         上传一张图片,在本机切成拼图。图片不会上传,也不会离开你的浏览器。
       </p>
     </header>
@@ -486,8 +556,10 @@ function readImageInfo(
       </aside>
     </section>
 
-    <section v-else>
-      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <section v-else class="puzzle-play">
+      <div
+        class="puzzle-play__toolbar mb-5 flex flex-wrap items-center justify-between gap-3"
+      >
         <div>
           <p class="m-0 text-sm text-neutral-500">
             {{ activeImage.name }} · {{ activeDifficulty.label }}
@@ -506,59 +578,67 @@ function readImageInfo(
         </button>
       </div>
 
-      <template v-if="loading">
-        <div
-          class="rounded-sm bg-neutral-100 px-4 py-12 text-center text-neutral-500"
-        >
-          正在切图…
-        </div>
-      </template>
-      <template v-else-if="error">
-        <p
-          class="rounded-sm bg-red-50 px-4 py-3 text-sm text-red-700"
-          role="alert"
-        >
-          图片生成失败,请换一张图片。
-        </p>
-      </template>
-      <template v-else>
-        <div
-          ref="puzzleRef"
-          class="puzzle grid overflow-hidden rounded-sm transition-all duration-1200"
-          :class="[isPuzzleRestored ? 'gap-0' : 'gap-1']"
-          :style="puzzleStyles"
-          aria-label="拼图棋盘"
-        >
+      <div ref="boardSlotRef" class="puzzle-play__board-slot">
+        <template v-if="loading">
           <div
-            v-for="piece in result"
-            :key="piece.id"
-            class="overflow-hidden bg-neutral-100 transition-all duration-1200"
-            :class="[
-              piece.restored && 'brightness-30',
-              !isPuzzleRestored && 'b-1 b-gray-300',
-              !(piece.restored || isPuzzleRestored) && DraggableClass,
-              isPuzzleRestored && 'brightness-100!',
-            ]"
+            class="rounded-sm bg-neutral-100 px-4 py-12 text-center text-neutral-500"
           >
-            <img
-              :src="piece.base64"
-              alt=""
-              draggable="false"
-              class="block h-full w-full object-cover select-none"
+            正在切图…
+          </div>
+        </template>
+        <template v-else-if="error">
+          <p
+            class="rounded-sm bg-red-50 px-4 py-3 text-sm text-red-700"
+            role="alert"
+          >
+            图片生成失败,请换一张图片。
+          </p>
+        </template>
+        <template v-else>
+          <div
+            ref="puzzleRef"
+            class="puzzle grid overflow-hidden rounded-sm transition-all duration-1200"
+            :class="[isPuzzleRestored ? 'gap-0' : 'gap-1']"
+            :style="puzzleStyles"
+            aria-label="拼图棋盘"
+          >
+            <div
+              v-for="piece in result"
+              :key="piece.id"
+              class="puzzle-piece overflow-hidden bg-neutral-100 bg-no-repeat transition-all duration-1200"
+              :class="[
+                piece.restored && 'brightness-30',
+                !isPuzzleRestored && 'b-1 b-gray-300',
+                !(piece.restored || isPuzzleRestored) && DraggableClass,
+                isPuzzleRestored && 'brightness-100!',
+              ]"
+              :style="getPieceStyles(piece)"
+              aria-hidden="true"
             />
           </div>
-        </div>
+        </template>
+      </div>
 
-        <p
-          v-if="isPuzzleRestored"
-          class="mt-4 rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-          role="status"
-        >
-          已完成。
-        </p>
-      </template>
+      <p
+        v-if="showSmallPieceWarning"
+        class="puzzle-play__hint rounded-sm bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        role="status"
+      >
+        当前屏幕上拼块较小,如果不好拖,建议换图后切到中等或简单。
+      </p>
 
-      <div v-if="!loading" class="mt-6 flex flex-wrap items-center gap-2">
+      <p
+        v-if="isPuzzleRestored"
+        class="puzzle-play__status rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+        role="status"
+      >
+        已完成。
+      </p>
+
+      <div
+        v-if="!loading"
+        class="puzzle-play__controls mt-6 flex flex-wrap items-center gap-2"
+      >
         <BitButton @click="reset">
           <span class="min-w-16">Reset</span>
         </BitButton>
@@ -571,7 +651,60 @@ function readImageInfo(
 </template>
 
 <style scoped lang="scss">
+.puzzle-page--playing {
+  max-block-size: 100svh;
+  min-block-size: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-block: clamp(0.75rem, 2svh, 1.25rem);
+}
+
+.puzzle-page--playing .puzzle-page__header {
+  flex: 0 0 auto;
+  margin-block-end: clamp(0.5rem, 1.5svh, 1rem);
+}
+
+.puzzle-page--playing .puzzle-page__kicker {
+  margin-block-end: 0.25rem;
+}
+
+.puzzle-page--playing .puzzle-page__title {
+  font-size: clamp(1.5rem, 4svh, 2.25rem);
+}
+
+.puzzle-play {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.puzzle-play__toolbar {
+  flex: 0 0 auto;
+  margin-block-end: clamp(0.5rem, 1.5svh, 1rem);
+}
+
+.puzzle-play__board-slot {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: grid;
+  place-items: center;
+}
+
+.puzzle-play__hint,
+.puzzle-play__status {
+  flex: 0 0 auto;
+  margin-block: 0.5rem 0;
+}
+
+.puzzle-play__controls {
+  flex: 0 0 auto;
+  margin-block-start: clamp(0.5rem, 1.5svh, 1rem);
+}
+
 .puzzle {
-  width: min(86vw, 760px);
+  max-inline-size: 100%;
+  max-block-size: 100%;
 }
 </style>

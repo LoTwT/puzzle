@@ -1,6 +1,7 @@
 export interface PuzzlePiece {
   id: `${number}-${number}`
-  base64: string
+  row: number
+  column: number
   restored: boolean
 }
 
@@ -11,7 +12,7 @@ export interface Puzzle {
   pieceWidth: number
   pieceHeight: number
   aspectRatio: number
-  sourceBase64: string
+  sourceUrl: string
 }
 
 export type PuzzleFitMode = "contain" | "crop"
