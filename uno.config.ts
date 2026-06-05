@@ -8,6 +8,11 @@ import {
 } from "unocss"
 
 export default defineConfig({
+  theme: {
+    colors: {
+      zzz: "#FFE000",
+    },
+  },
   presets: [
     presetUno(),
     presetIcons(),
