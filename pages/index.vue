@@ -71,11 +71,13 @@ watch(shouldOfferCrop, (next) => {
 const puzzleUrl = computed(() => activeImage.value.url)
 const puzzleGridSize = computed(() => activeDifficulty.value.gridSize)
 
-const { puzzle, puzzlePieces, loading, error, refresh } = usePuzzle(
-  puzzleUrl,
-  puzzleGridSize,
-  fitMode,
-)
+const {
+  puzzle,
+  puzzlePieces,
+  loading,
+  error,
+  refresh: shufflePuzzle,
+} = usePuzzle(puzzleUrl, puzzleGridSize, fitMode)
 
 const puzzleBoardSize = computed(() => {
   const fallbackWidth = Math.min(Math.max(windowWidth.value - 40, 240), 760)
@@ -142,26 +144,34 @@ const previewGridStyles = computed<CSSProperties>(() => ({
 }))
 
 const DraggableClass = "piece-draggable"
+const snapDurationMs = 240
+const snappingPieceIds = shallowRef<ReadonlySet<string>>(new Set())
+const snapTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-const { result, reset } = useSwap(puzzleRef, puzzlePieces, {
+const { result, reset: resetSwap } = useSwap(puzzleRef, puzzlePieces, {
   animation: 150,
   draggable: `.${DraggableClass}`,
   onUpdate: (e) => {
     const { oldIndex, newIndex } = e
 
-    checkPiece(oldIndex!)
-    checkPiece(newIndex!)
+    checkPiece(oldIndex!, { animate: true })
+    checkPiece(newIndex!, { animate: true })
   },
 })
 
-function checkPiece(index: number) {
+function checkPiece(index: number, options: { animate?: boolean } = {}) {
   const piece = result.value[index]
   if (!piece) return
 
   const renderRow = Math.floor(index / puzzle.value.columns)
   const renderCol = index % puzzle.value.columns
+  const wasRestored = piece.restored
 
   piece.restored = piece.id === `${renderRow}-${renderCol}`
+
+  if (options.animate && piece.restored && !wasRestored) {
+    triggerPieceSnap(piece.id)
+  }
 }
 
 watch(result, () => {
@@ -171,6 +181,33 @@ watch(result, () => {
 const isPuzzleRestored = computed(() =>
   result.value.every((piece) => piece.restored),
 )
+
+function isPieceSnapActive(piece: PuzzlePiece) {
+  return snappingPieceIds.value.has(piece.id)
+}
+
+function triggerPieceSnap(pieceId: PuzzlePiece["id"]) {
+  clearTimeout(snapTimers.get(pieceId))
+
+  snappingPieceIds.value = new Set(snappingPieceIds.value).add(pieceId)
+
+  const timer = setTimeout(() => {
+    snapTimers.delete(pieceId)
+    const next = new Set(snappingPieceIds.value)
+    next.delete(pieceId)
+    snappingPieceIds.value = next
+  }, snapDurationMs)
+
+  snapTimers.set(pieceId, timer)
+}
+
+function clearPieceMotion() {
+  for (const timer of snapTimers.values()) {
+    clearTimeout(timer)
+  }
+  snapTimers.clear()
+  snappingPieceIds.value = new Set()
+}
 
 function getPieceStyles(piece: PuzzlePiece): CSSProperties {
   return {
@@ -223,6 +260,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  clearPieceMotion()
   for (const [url, timer] of pendingObjectUrlRevokeTimers) {
     clearTimeout(timer)
     URL.revokeObjectURL(url)
@@ -232,6 +270,7 @@ onBeforeUnmount(() => {
 })
 
 function selectSampleImage() {
+  clearPieceMotion()
   const oldObjectUrl = uploadedObjectUrl.value
   uploadedObjectUrl.value = null
   const nextImage: PuzzleImage = {
@@ -264,6 +303,7 @@ function handleDrop(event: DragEvent) {
 }
 
 function selectUploadedFile(file: File) {
+  clearPieceMotion()
   imageError.value = ""
 
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
@@ -294,12 +334,24 @@ function selectUploadedFile(file: File) {
 function startPuzzle() {
   if (!selectedImage.value || imageError.value) return
 
+  clearPieceMotion()
   activeImage.value = selectedImage.value
   isPlaying.value = true
 }
 
 function changeImage() {
+  clearPieceMotion()
   isPlaying.value = false
+}
+
+function reset() {
+  clearPieceMotion()
+  resetSwap()
+}
+
+function refresh() {
+  clearPieceMotion()
+  shufflePuzzle()
 }
 
 function revokeUploadedObjectUrl() {
@@ -598,7 +650,7 @@ function readImageInfo(
           <div
             ref="puzzleRef"
             class="puzzle grid overflow-hidden rounded-sm transition-all duration-1200"
-            :class="[isPuzzleRestored ? 'gap-0' : 'gap-1']"
+            :class="[isPuzzleRestored ? 'puzzle--complete gap-0' : 'gap-1']"
             :style="puzzleStyles"
             aria-label="拼图棋盘"
           >
@@ -610,6 +662,8 @@ function readImageInfo(
                 piece.restored && 'brightness-30',
                 !isPuzzleRestored && 'b-1 b-gray-300',
                 !(piece.restored || isPuzzleRestored) && DraggableClass,
+                piece.restored && !isPuzzleRestored && 'puzzle-piece--locked',
+                isPieceSnapActive(piece) && 'puzzle-piece--snap',
                 isPuzzleRestored && 'brightness-100!',
               ]"
               :style="getPieceStyles(piece)"
@@ -706,5 +760,99 @@ function readImageInfo(
 .puzzle {
   max-inline-size: 100%;
   max-block-size: 100%;
+  transform-origin: center;
+}
+
+.puzzle--complete {
+  animation: puzzle-complete-breathe 920ms ease-in-out 3;
+  will-change: transform, opacity;
+}
+
+.puzzle-piece {
+  position: relative;
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+.puzzle-piece::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background: rgba(251, 191, 36, 0.22);
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.puzzle-piece--locked::after {
+  opacity: 0.1;
+}
+
+.puzzle-piece--snap {
+  animation: puzzle-piece-snap-lock 240ms ease-out;
+}
+
+.puzzle-piece--snap::after {
+  animation: puzzle-piece-confirm 240ms ease-out;
+}
+
+@keyframes puzzle-piece-snap-lock {
+  0% {
+    transform: translateZ(0) scale(1);
+  }
+
+  52% {
+    transform: translateZ(0) scale(1.04);
+  }
+
+  82% {
+    transform: translate3d(0, 1px, 0) scale(1);
+  }
+
+  100% {
+    transform: translateZ(0) scale(1);
+  }
+}
+
+@keyframes puzzle-piece-confirm {
+  0% {
+    opacity: 0;
+  }
+
+  30% {
+    opacity: 0.3;
+  }
+
+  100% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes puzzle-complete-breathe {
+  0%,
+  100% {
+    transform: translateZ(0) scale(1);
+  }
+
+  50% {
+    transform: translateZ(0) scale(1.012);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .puzzle--complete,
+  .puzzle-piece--snap {
+    animation: none;
+  }
+
+  .puzzle-piece,
+  .puzzle-piece::after {
+    transition-duration: 1ms;
+  }
+
+  .puzzle-piece--snap::after {
+    animation: none;
+    opacity: 0.18;
+  }
 }
 </style>
