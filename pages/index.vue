@@ -683,10 +683,16 @@ function readImageInfo(
 
       <p
         v-if="isPuzzleRestored"
-        class="puzzle-play__status rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+        class="puzzle-play__status flex items-center gap-2 rounded-sm bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
         role="status"
       >
-        已完成。
+        <span>已完成。</span>
+        <span
+          class="puzzle-play__complete-mark font-700 text-zzz font-mono text-xs tracking-widest uppercase"
+          aria-hidden="true"
+        >
+          ZZZ
+        </span>
       </p>
 
       <div
@@ -779,7 +785,7 @@ function readImageInfo(
   inset: 0;
   content: "";
   pointer-events: none;
-  background: rgba(251, 191, 36, 0.22);
+  background: rgb(var(--zzz-accent-rgb, 255 224 0) / 0.22);
   opacity: 0;
   transition: opacity 180ms ease-out;
 }
@@ -794,6 +800,11 @@ function readImageInfo(
 
 .puzzle-piece--snap::after {
   animation: puzzle-piece-confirm 240ms ease-out;
+}
+
+.puzzle-play__complete-mark {
+  color: var(--zzz-accent);
+  animation: puzzle-complete-mark 280ms ease-out both;
 }
 
 @keyframes puzzle-piece-snap-lock {
@@ -839,9 +850,22 @@ function readImageInfo(
   }
 }
 
+@keyframes puzzle-complete-mark {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateZ(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .puzzle--complete,
-  .puzzle-piece--snap {
+  .puzzle-piece--snap,
+  .puzzle-play__complete-mark {
     animation: none;
   }
 
