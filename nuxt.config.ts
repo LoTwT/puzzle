@@ -6,7 +6,11 @@ export default defineNuxtConfig({
 
   modules: ["@unocss/nuxt", "@vueuse/nuxt"],
 
-  css: ["@unocss/reset/tailwind-compat.css", "~/assets/css/theme.css"],
+  css: [
+    "@unocss/reset/tailwind-compat.css",
+    "~/assets/css/fonts.css",
+    "~/assets/css/theme.css",
+  ],
 
   vite: {
     css: {
