@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url'
 
-import { expect, test } from '@playwright/test'
-
+import { expect, test } from './fixtures.ts'
 import { fixturePath, fixtureState, readSnapshot, seedPuzzle, slots } from './helpers.ts'
 
 const saveWarning = '本局暂时无法保存，刷新后可能丢失进度'
@@ -59,6 +58,15 @@ test('上传后刷新完整恢复图片、配置、排列与步数，重开沿�
     ),
   ).toEqual(labels)
   expect(await readSnapshot(page)).toEqual(saved)
+  // 恢复后的图片还要支持继续保存；只读取刚恢复的 Blob 无法发现文件引用失效。
+  await unlocked.nth(0).click()
+  await unlocked.nth(1).click()
+  await expect.poll(async () => (await readSnapshot(page))?.state.moves).toBe(2)
+  const continued = await readSnapshot(page)
+  expect(continued?.image).toEqual(saved?.image)
+  await page.reload()
+  await expect(page.getByText('交换 2 次', { exact: true })).toBeVisible()
+  expect(await readSnapshot(page)).toEqual(continued)
   await page.getByRole('button', { name: '查看原图' }).click()
   const original = page.getByRole('img', { name: 'puzzle.png，完整图片' })
   await expect(original).toBeVisible()

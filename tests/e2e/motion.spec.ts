@@ -1,6 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
-
 import { MOTION } from '../../src/puzzle/constants.ts'
+import { expect, test, type Page } from './fixtures.ts'
 import { fixtureState, readSnapshot, seedPuzzle, slots } from './helpers.ts'
 
 // 在测试侧暂停真实 WAAPI 时间线，检查中间状态；产品没有测试开关。
@@ -181,6 +180,8 @@ test('动态切换 reduced motion 安全收尾，完成与新局即时稳定，�
 })
 
 test('完成反馈中断直接完成；新局入场及原图淡入淡出按阶段开放', async ({ page }) => {
+  // 操作栏保持在视口内，避免点击自动滚动按产品约定提前收尾入场动画。
+  await page.setViewportSize({ width: 1280, height: 1000 })
   await controlAnimations(page)
   await seedPuzzle(page, { ...fixtureState, tiles: [1, 0, 2, 3, 4, 5, 6, 7, 8] })
   await clickPair(page, 0, 1)

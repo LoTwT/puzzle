@@ -199,7 +199,13 @@ export function usePuzzleSession() {
       if (disposed) return
       if (saved !== undefined) {
         if (!isValidPuzzleSave(saved)) throw new Error('Invalid puzzle save.')
-        const snapshot = createPuzzleSave(saved.image, saved.state)
+        // WebKit 的数据库 Blob 可能仍引用存档文件；后续覆盖写入会使该引用失效。
+        // 恢复时只复制一次原始字节，后续保存复用独立 Blob，不重新编码图片。
+        const blob = new Blob([await saved.image.blob.arrayBuffer()], {
+          type: saved.image.blob.type,
+        })
+        if (disposed) return
+        const snapshot = createPuzzleSave({ ...saved.image, blob }, saved.state)
         const resource = await createImageResource(snapshot.image)
         if (disposed) {
           resource.release()

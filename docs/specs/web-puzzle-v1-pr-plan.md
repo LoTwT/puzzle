@@ -1,6 +1,6 @@
 # Web 拼图游戏首版 PR 拆分
 
-状态：实施中，PR01 [#9](https://github.com/LoTwT/puzzle/pull/9)、PR02 [#10](https://github.com/LoTwT/puzzle/pull/10)、PR03 [#11](https://github.com/LoTwT/puzzle/pull/11)、PR04 [#12](https://github.com/LoTwT/puzzle/pull/12)、PR05 [#13](https://github.com/LoTwT/puzzle/pull/13) 已合并，GitHub CI 与现有 Cloudflare Pages 检查通过；PR06 已实现，本地验证与父协调审查通过，进入发布阶段，远端检查和合并状态以实际 PR 记录为准；PR07 未开始。更新日期：2026-10-16。
+状态：PR01 [#9](https://github.com/LoTwT/puzzle/pull/9)、PR02 [#10](https://github.com/LoTwT/puzzle/pull/10)、PR03 [#11](https://github.com/LoTwT/puzzle/pull/11)、PR04 [#12](https://github.com/LoTwT/puzzle/pull/12)、PR05 [#13](https://github.com/LoTwT/puzzle/pull/13)、PR06 [#14](https://github.com/LoTwT/puzzle/pull/14) 已合并，GitHub CI 与现有 Cloudflare Pages 检查通过。PR07 实现与父协调内容审查通过；发布、检查及合并状态以[实际 PR 记录](https://github.com/LoTwT/puzzle/pulls?q=is%3Apr+head%3Atest%2Fpuzzle-pr07-acceptance)为准。首版整体验收未完成，实际结果与剩余项目见[验收记录](../acceptance/web-puzzle-v1.md)。更新日期：2026-10-16。
 
 将[首版规格](web-puzzle-v1.md)中已确定的内容拆成 7 个 PR，按下表顺序合入。PR01 至 PR07 是计划编号，不对应 GitHub PR 号。本文维护任务归属、依赖和验证安排；玩法、参数、数据模型与最终工程要求仍以首版规格为准。
 
@@ -284,7 +284,7 @@ PR02 浏览器结果来自桌面 Chrome 与模拟视口，实际手机、Firefox
 
 **实施记录（2026-10-16）**
 
-从干净的 `main` / `origin/main` 提交 `83949e98115a8235c8a8baf12a6dc15fbb3eb84d` 创建 `feat/puzzle-pr06-motion`。PR06 已实现，本地验证与父协调内容审查通过，进入提交、推送、创建 PR 和等待远端检查阶段；合并与分支清理由父协调继续处理，PR07 尚未开始。远端检查与合并结果以实际 PR 记录为准。
+从干净的 `main` / `origin/main` 提交 `83949e98115a8235c8a8baf12a6dc15fbb3eb84d` 创建 `feat/puzzle-pr06-motion`。PR06 经实施、本地验证与父协调审查后，由 [#14](https://github.com/LoTwT/puzzle/pull/14) squash 合并为 `12ef1ba3c993644dbb8bb29050e00442d60643c1`，GitHub CI 与现有 Cloudflare Pages 检查通过。合并 tree `693a2eed0dd0050b0111129e22d882d077fc137e` 与已审查 head `b616ef46b9183719dc556078c7c8f32d4efe7a5b` 一致，任务本地与远端分支已清理；证据为 `/tmp/puzzle-pr06-merge.json`、`/tmp/puzzle-pr06-cleanup.json`。PR01 至 PR06 均已合并且检查通过；PR07 当前状态见后节。
 
 父协调独立执行 `pnpm run ci`（198 项单测、一次生产构建）与 `pnpm test:e2e`（16 项 Chromium、一次生产构建），均通过，4175 已核实关闭。审查覆盖动效生命周期、会话门禁、逻辑与视觉完成、焦点、中断、减少动态效果、清理及回归测试，未发现 PR06 范围内可操作的实现缺陷。父协调复用并阅读下表对应的时间帧、自然播放连续性、完成中断与卸载及 6×6 性能证据，亲自查看落位 90ms、局部归位 140ms、完成 400ms、稳定完成及返回 80ms 画面；视觉结论限于本地 Chromium。发布前核对 `/tmp/puzzle-pr06-parent-review.json` 中的 12 个实现文件及 README 基线 SHA256 全部一致，分支、基线与空暂存区一致；此后仅纠正 README 的旧动效状态并更新本计划，代码、测试与依赖沿用已审查版本和已通过验证。
 
@@ -305,7 +305,7 @@ PR02 浏览器结果来自桌面 Chrome 与模拟视口，实际手机、Firefox
 
 证据集中在 `/tmp/puzzle-pr06-evidence/`，包含检查日志、浏览器报告、`visual-audit.json`、`continuity-audit.json`、时间帧截图、焦点与布局诊断、文件 SHA256、交接记录和自身当前 assistant turn 的 `provenance.json`。临时脚本未加入 CI，运行错误列表为空。开发预览按 Lody 要求上报；原有 4173 进程与备份分支、依赖和生成目录均保留。
 
-参考录像复用[规格中的既有调研记录](web-puzzle-v1.md#参考行为与设计取舍)；本次检索未找到可复用的视频帧，两个 Bilibili 页面均返回 412，未声称本轮重新观看。实际检查的是本地 Chromium 渲染和时间帧，A15 的直接录像复核及用户最终视觉验收仍未完成。触控为 CDP 模拟，失焦、隐藏、旋转等为事件或媒体设置模拟；Firefox/WebKit、实际设备、实际读屏和最终整体验收仍留 PR07，不阻塞本次交接。
+参考录像复用[规格中的既有调研记录](web-puzzle-v1.md#参考行为与设计取舍)；本次检索未找到可复用的视频帧，两个 Bilibili 页面均返回 412，未声称本轮重新观看。实际检查的是本地 Chromium 渲染和时间帧，A15 的直接录像复核及用户最终视觉验收仍未完成。触控为 CDP 模拟，失焦、隐藏、旋转等为事件或媒体设置模拟；PR06 交接时的其他引擎、设备与读屏缺口由 PR07 汇总，当前结论见[首版验收记录](../acceptance/web-puzzle-v1.md)。PR06 已合并且远端检查通过。
 
 ## PR07：生产构建与交付验收
 
@@ -325,6 +325,20 @@ PR02 浏览器结果来自桌面 Chrome 与模拟视口，实际手机、Firefox
 - `pnpm run ci` 和 `pnpm test:e2e:all` 通过，根路径与子目录场景有实际结果。
 - A01 至 A16 均有可追溯的通过证据，实际设备与模拟验证分开列出。缺少实际设备结果时如实记录，首版整体验收保持未完成。
 - 交付产物为 `dist/` 和源码，开发文档可供新环境复现。域名、托管平台、发布流水线与上线操作留在另行授权的上线任务中。
+
+**实施记录（2026-10-16）**
+
+从干净的 `main` / `origin/main` 提交 `12ef1ba3c993644dbb8bb29050e00442d60643c1` 创建 `test/puzzle-pr07-acceptance`。PR07 的本地可执行验收、必要修复与交付文档已完成，父协调内容审查通过；发布、检查及合并状态以[实际 PR 记录](https://github.com/LoTwT/puzzle/pulls?q=is%3Apr+head%3Atest%2Fpuzzle-pr07-acceptance)为准。PR01 至 PR06 均已合并，GitHub CI 与现有 Cloudflare Pages 检查通过。
+
+修复后 `pnpm run ci` 通过，包含 198 项单测及一次生产构建；`pnpm test:e2e:all` 实际运行三个项目，Chromium 17 通过，Firefox 与 WebKit 各 16 通过、1 跳过，合计 49 通过、2 跳过、0 失败。两条跳过均为 Chromium CDP 专用触控用例，桌面长图在三引擎执行。4175 独占运行并在结束后关闭，工具链和常规 CI 结构保持原样。
+
+父协调独立复跑上述 CI 与三引擎检查，结果一致，生成的 dist 与实施交付清单逐字节相同；内容审查未发现可操作的实现缺陷。发布前核对 `/tmp/puzzle-pr07-parent-review.json` 中分支、基线、空暂存区及 12 个文件 SHA256 全部一致，此后仅更新 README、文档索引、验收记录和本计划的审查/发布状态。父审查范围、画面与日志位置见[验收记录](../acceptance/web-puzzle-v1.md)，代码、测试与依赖继续复用已审查版本和已通过验证。
+
+首次跨引擎执行发现并修复 WebKit 恢复后的 Blob 文件引用失效，以及默认 Tab 策略跳过普通操作按钮的问题。恢复时复制一次原 PNG 字节，后续保存复用独立 Blob；操作按钮显式进入顺序焦点，保留既有 `aria-disabled` 与会话门禁。浏览器回归补齐全部未归位的完整键盘游玩，以及刷新后继续交换并再次刷新。Firefox 的整数事件坐标、单次滚轮距离和测试自动滚动按实际行为修正；macOS WebKit 使用每例独立临时磁盘 profile 验证真实 Blob 持久化，另确认临时内存会话存储失败仍可继续游戏。未增加固定等待、重试或浏览器 CI 矩阵。
+
+同一最终 dist 在真实 HTTP 根路径和 `/puzzle/` 挂载，三引擎与本机 Chrome 共 8 组流程通过，覆盖首屏、JS/CSS、三张内置图、上传、刷新恢复和错误后重新选图。最终画面检查覆盖四种指定宽度、横图/竖图/极端比例、操作栏、时间帧与自然播放；本机浏览器和真机能力已实际查询。
+
+[首版验收记录](../acceptance/web-puzzle-v1.md)汇总 A01 至 A16、精确版本、复用范围、修复证据与剩余步骤。原始日志、报告、截图、视频和一次性工具在 `/tmp/puzzle-pr07-evidence/`，没有进入仓库或 CI。实际 Safari 自动化因未开启远程自动化而不可用，发行版 Firefox 未安装，未连接 iOS/Android 真机；实际读屏、OS 切后台/旋转、桌面菜单缩放、参考视频直接复核和用户最终视觉反馈仍未验证，首版整体验收保持未完成。既有 4173 生产预览及备份分支保留，临时验收服务关闭；部署与 Cloudflare 配置未改。
 
 ## 验收项归属
 
@@ -353,6 +367,6 @@ PR07 汇总全部结果；下表列出各项实现与首次验证的责任 PR，
 
 主要风险集中在图片异步任务、交换提交、存档写入和动画回调之间的先后顺序。各 PR 以同一个会话标识和交换提交入口衔接，过期任务不得改变当前局面；图片失败、存储失败和动画取消分别按规格处理。
 
-用户已授权从拆分进入实施阶段，原先仅产出文档的范围约束已被覆盖。PR01 至 PR05 已合并，GitHub CI 与现有 Cloudflare Pages 检查通过；PR06 已实现，本地验证与父协调审查通过，进入发布阶段，远端检查和合并状态以实际 PR 记录为准。PR07 尚未开始，参考录像直接复核、其他浏览器引擎、真机、实际读屏及用户最终视觉验收仍待完成。后续各项仍按独立 session 实施、父协调审查、发布与合并的顺序推进。上线部署不在本流程内。
+用户已授权从拆分进入实施阶段，原先仅产出文档的范围约束已被覆盖。PR01 至 PR06 已合并，GitHub CI 与现有 Cloudflare Pages 检查通过；PR07 实现与父协调内容审查通过，发布、检查及合并状态以[实际 PR 记录](https://github.com/LoTwT/puzzle/pulls?q=is%3Apr+head%3Atest%2Fpuzzle-pr07-acceptance)为准。三引擎和生产路径已完成可执行检查，首版整体验收仍未完成，具体缺口与后续步骤以[验收记录](../acceptance/web-puzzle-v1.md)为准。上线部署不在本流程内。
 
 实施后如需回退，按依赖逆序处理；涉及存档的回退保持数据库记录，不以清空浏览器数据代替兼容处理。首版存档格式已在规格中确定，格式变更须另行设计兼容策略。

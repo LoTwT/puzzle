@@ -137,6 +137,7 @@ function upload(event: Event) {
     <button
       class="action-button action-button-primary w-full"
       type="button"
+      tabindex="0"
       :disabled="!props.canStart"
       @click="emit('start', $event.currentTarget as HTMLElement)"
     >

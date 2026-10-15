@@ -189,10 +189,12 @@ watch(confirmation, async (action) => {
       </div>
 
       <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <!-- 显式加入顺序焦点，兼容 Safari 默认跳过普通按钮的 Tab 策略。 -->
         <button
           v-if="!visualCompleted"
           class="action-button"
           type="button"
+          tabindex="0"
           :aria-pressed="originalOpen"
           :aria-disabled="!canToggleOriginal"
           @click="toggleOriginal"
@@ -202,6 +204,7 @@ watch(confirmation, async (action) => {
         <button
           class="action-button"
           type="button"
+          tabindex="0"
           :aria-disabled="!canUseActions"
           @click="restart"
         >
@@ -211,6 +214,7 @@ watch(confirmation, async (action) => {
           ref="settings-button"
           class="action-button"
           type="button"
+          tabindex="0"
           :aria-disabled="!canUseActions"
           @click="showSettings"
         >
@@ -255,7 +259,13 @@ watch(confirmation, async (action) => {
     >
       <div class="mb-6 flex items-center justify-between gap-3">
         <h2 id="settings-title" class="text-xl font-semibold">换张图片</h2>
-        <button ref="close-button" class="action-button" type="button" @click="closeSettings">
+        <button
+          ref="close-button"
+          class="action-button"
+          type="button"
+          tabindex="0"
+          @click="closeSettings"
+        >
           取消
         </button>
       </div>
@@ -289,10 +299,21 @@ watch(confirmation, async (action) => {
         {{ confirmation === 'new-game' ? '开始新局将清除本局进度。' : '重新打乱将清除本局进度。' }}
       </p>
       <div class="mt-6 flex flex-wrap justify-end gap-3">
-        <button ref="cancel-button" class="action-button" type="button" @click="cancelConfirmation">
+        <button
+          ref="cancel-button"
+          class="action-button"
+          type="button"
+          tabindex="0"
+          @click="cancelConfirmation"
+        >
           取消
         </button>
-        <button class="action-button action-button-primary" type="button" @click="confirmAction">
+        <button
+          class="action-button action-button-primary"
+          type="button"
+          tabindex="0"
+          @click="confirmAction"
+        >
           {{ confirmation === 'new-game' ? '开始新局' : '重新打乱' }}
         </button>
       </div>
