@@ -1,11 +1,14 @@
-import { expect, test, type Page } from '@playwright/test'
-
+import { expect, test, type Page } from './fixtures.ts'
 import { fixtureState, readSnapshot, seedPuzzle, slots } from './helpers.ts'
 
 async function point(page: Page, slot: number, xFraction = 0.5, yFraction = 0.5) {
   const box = await slots(page).nth(slot).boundingBox()
   if (!box) throw new Error('Missing slot bounds.')
-  return { x: box.x + box.width * xFraction, y: box.y + box.height * yFraction }
+  // Firefox 会量化原生鼠标事件的小数坐标；输入整数后可精确验证按下偏移。
+  return {
+    x: Math.round(box.x + box.width * xFraction),
+    y: Math.round(box.y + box.height * yFraction),
+  }
 }
 
 async function startDrag(page: Page, source = 0, target = 1) {
@@ -207,6 +210,62 @@ test('键盘单停靠点，锁定格可聚焦，最后一步后焦点留在确�
   await expect(slots(page).nth(0)).toBeFocused()
 })
 
+test('仅用键盘从全部未归位完成整局，保存结果并重玩', async ({ page }) => {
+  await seedPuzzle(page, { ...fixtureState, moves: 0 })
+  const before = await readSnapshot(page)
+  await page.keyboard.press('Tab')
+  await expect(slots(page).nth(0)).toBeFocused()
+  let focused = 0
+  async function moveTo(target: number) {
+    while (Math.floor(focused / 3) !== Math.floor(target / 3)) {
+      const down = target > focused
+      await page.keyboard.press(down ? 'ArrowDown' : 'ArrowUp')
+      focused += down ? 3 : -3
+    }
+    while (focused !== target) {
+      const right = target > focused
+      await page.keyboard.press(right ? 'ArrowRight' : 'ArrowLeft')
+      focused += right ? 1 : -1
+    }
+    await expect(slots(page).nth(target)).toBeFocused()
+  }
+
+  const pairs = [
+    [2, 0],
+    [2, 1],
+    [5, 3],
+    [5, 4],
+    [8, 6],
+    [8, 7],
+  ] as const
+  for (const [index, [source, target]] of pairs.entries()) {
+    await moveTo(source)
+    await page.keyboard.press('Space')
+    await expect(slots(page).nth(source)).toHaveAttribute('aria-pressed', 'true')
+    await moveTo(target)
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.puzzle-board')).toHaveAttribute(
+      'data-phase',
+      index === pairs.length - 1 ? 'completed' : 'ready',
+    )
+    await expect(slots(page).nth(target)).toBeFocused()
+    await expect.poll(async () => (await readSnapshot(page))?.state.moves).toBe(index + 1)
+  }
+  await expect(page.getByText('拼图完成', { exact: true })).toBeVisible()
+  expect((await readSnapshot(page))?.state.tiles).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+  await expect(page.locator('.puzzle-moving-tile, .puzzle-floating-tile')).toHaveCount(0)
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: '再来一局' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.puzzle-board')).toHaveAttribute('data-phase', 'ready')
+  await expect(page.getByRole('button', { name: '重新打乱', exact: true })).toBeFocused()
+  await expect.poll(async () => (await readSnapshot(page))?.state.moves).toBe(0)
+  const replay = await readSnapshot(page)
+  expect(replay?.image).toEqual(before?.image)
+  expect(replay?.state).toMatchObject({ gridSize: 3, startMode: 'random' })
+  expect(replay?.state.sessionId).not.toBe(before?.state.sessionId)
+})
+
 test('长图点选后从棋盘外滚动，来源离屏仍保留选择，目标只交换一次且不跳回', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 600 })
   await seedPuzzle(page, fixtureState, { width: 96, height: 480 })
@@ -214,7 +273,12 @@ test('长图点选后从棋盘外滚动，来源离屏仍保留选择，目标�
   await slots(page).nth(0).click()
   await expect(slots(page).nth(0)).toHaveAttribute('aria-pressed', 'true')
   await page.mouse.move(8, 550)
-  await page.mouse.wheel(0, 1200)
+  // 单次滚轮的大幅位移可能被引擎限制为一屏；分次实际滚动到相同位置。
+  for (let index = 0; index < 3; index++) {
+    const before = await page.evaluate(() => window.scrollY)
+    await page.mouse.wheel(0, 400)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before + 400)
+  }
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1000)
   await page
     .locator('main')
