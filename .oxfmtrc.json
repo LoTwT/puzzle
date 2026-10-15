@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "tabWidth": 2,
+  "useTabs": false,
+  "singleQuote": true,
+  "semi": false,
+  "sortImports": {},
+  "sortTailwindcss": {
+    "stylesheet": "./src/styles.css"
+  },
+  "ignorePatterns": [
+    "pnpm-lock.yaml",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**"
+  ]
+}

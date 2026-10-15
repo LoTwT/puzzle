@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.pnpm-store/
+.cache/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+.npmrc
+.env
+.env.*
+!.env.example
