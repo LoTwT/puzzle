@@ -1,0 +1,7 @@
+saveExact: true
+engineStrict: true
+strictPeerDependencies: true
+
+# 由根包 prepare 安装钩子，避免依赖的 postinstall 重复安装。
+allowBuilds:
+  simple-git-hooks: false
