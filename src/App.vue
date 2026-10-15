@@ -9,6 +9,7 @@ const {
   state,
   imageResource,
   selectedSlot,
+  pointerGesture,
   candidateResource,
   candidateConfig,
   candidateImageId,
@@ -34,6 +35,11 @@ const {
   toggleOriginal,
   closeOriginal,
   selectSlot,
+  beginPointer,
+  movePointer,
+  endPointer,
+  cancelPointer,
+  cancelInteraction,
   requestRestart,
   cancelConfirmation,
   confirmAction,
@@ -152,10 +158,16 @@ watch(confirmation, async (action) => {
         :state="state"
         :image-resource="imageResource"
         :selected-slot="selectedSlot"
+        :pointer-gesture="pointerGesture"
         :completed="completed"
         :interactive="canInteract"
         :show-original="originalOpen"
         @select="selectSlot"
+        @pointer-start="beginPointer"
+        @pointer-move="movePointer"
+        @pointer-end="endPointer"
+        @cancel-pointer="cancelPointer"
+        @cancel-interaction="cancelInteraction"
       />
 
       <div v-if="completed" class="mt-6 text-center" role="status">
@@ -184,7 +196,9 @@ watch(confirmation, async (action) => {
         id="puzzle-instructions"
         class="mx-auto mt-5 max-w-md text-center text-sm leading-6 text-muted"
       >
-        依次点选两块图即可交换，再点选中图块可取消。<br />归位图块变暗并锁定，拼好后整图亮起。
+        拖动图块或依次点选两格交换，归位后锁定。<br />
+        键盘方向键移动，Enter 或空格确认，Escape 取消。<br />
+        长图可先点选，再从棋盘外滚动页面，最后点选目标。
       </p>
     </template>
 

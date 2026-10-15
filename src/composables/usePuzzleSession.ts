@@ -1,4 +1,4 @@
-import { computed, nextTick, onScopeDispose, shallowRef } from 'vue'
+import { computed, nextTick, onScopeDispose, shallowRef, watch } from 'vue'
 
 import { DEFAULT_GRID_SIZE, DEFAULT_START_MODE } from '../puzzle/constants'
 import {
@@ -8,6 +8,7 @@ import {
   loadBuiltinImage,
   loadUploadedImage,
 } from '../puzzle/images'
+import { acceptsPointer, hitTestSlot, reachedDragThreshold } from '../puzzle/input'
 import {
   applySwap,
   createPuzzle,
@@ -20,10 +21,13 @@ import {
 } from '../puzzle/rules'
 import { createPuzzleStorage } from '../puzzle/storage'
 import type {
+  BoardBounds,
   BuiltinImageMetadata,
   PuzzleConfig,
   PuzzleImageResource,
   PuzzleState,
+  PointerGesture,
+  PointerInput,
   SlotIndex,
   SwapRequest,
 } from '../puzzle/types'
@@ -32,6 +36,7 @@ export function usePuzzleSession() {
   const state = shallowRef<PuzzleState | null>(null)
   const imageResource = shallowRef<PuzzleImageResource | null>(null)
   const selectedSlot = shallowRef<SlotIndex | null>(null)
+  const pointerGesture = shallowRef<PointerGesture | null>(null)
   const candidateResource = shallowRef<PuzzleImageResource | null>(null)
   const candidateConfig = shallowRef<PuzzleConfig>({
     gridSize: DEFAULT_GRID_SIZE,
@@ -72,6 +77,28 @@ export function usePuzzleSession() {
       !loading.value &&
       !loadError.value &&
       !confirmation.value,
+  )
+
+  function cancelInteraction() {
+    pointerGesture.value = null
+    selectedSlot.value = null
+  }
+
+  // 外部滚动和不属于图块的 pointercancel 不应取消已完成的点选。
+  function cancelPointer(pointerId?: number) {
+    if (
+      pointerGesture.value &&
+      (pointerId === undefined || pointerGesture.value.pointerId === pointerId)
+    )
+      cancelInteraction()
+  }
+
+  watch(
+    canInteract,
+    (enabled) => {
+      if (!enabled) cancelPointer()
+    },
+    { flush: 'sync' },
   )
 
   // 当前局与候选可以借用同一资源。等 Vue 撤下旧视图后，只释放双方均不再引用的 URL。
@@ -146,6 +173,7 @@ export function usePuzzleSession() {
 
   function startPuzzle(config: PuzzleConfig) {
     invalidateImageRequest()
+    cancelInteraction()
     state.value = createPuzzle({ ...config, sessionId: crypto.randomUUID() })
     selectedSlot.value = null
     overlay.value = null
@@ -261,6 +289,7 @@ export function usePuzzleSession() {
     const current = state.value
     if (
       disposed ||
+      pointerGesture.value !== null ||
       !canInteract.value ||
       !current ||
       request.sessionId !== current.sessionId ||
@@ -279,6 +308,7 @@ export function usePuzzleSession() {
     const current = state.value
     if (
       disposed ||
+      pointerGesture.value !== null ||
       !canInteract.value ||
       !current ||
       current.sessionId !== sessionId ||
@@ -300,6 +330,90 @@ export function usePuzzleSession() {
     }
   }
 
+  function beginPointer(event: PointerInput, bounds: BoardBounds, sessionId: string) {
+    const current = state.value
+    if (
+      disposed ||
+      !canInteract.value ||
+      !current ||
+      current.sessionId !== sessionId ||
+      pointerGesture.value ||
+      !acceptsPointer(event)
+    )
+      return
+    const sourceSlot = hitTestSlot(event.clientX, event.clientY, bounds, current.gridSize)
+    if (sourceSlot === null || isSlotLocked(current.tiles, sourceSlot)) return
+    const width = bounds.width / current.gridSize
+    const height = bounds.height / current.gridSize
+    pointerGesture.value = {
+      pointerId: event.pointerId,
+      sessionId,
+      expectedMoves: current.moves,
+      sourceSlot,
+      phase: 'pressed',
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: event.clientX - bounds.left - (sourceSlot % current.gridSize) * width,
+      offsetY: event.clientY - bounds.top - Math.floor(sourceSlot / current.gridSize) * height,
+      width,
+      height,
+      targetSlot: null,
+    }
+  }
+
+  function movePointer(event: PointerInput, bounds: BoardBounds) {
+    const gesture = pointerGesture.value
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    const current = state.value
+    if (
+      !canInteract.value ||
+      !current ||
+      current.sessionId !== gesture.sessionId ||
+      current.moves !== gesture.expectedMoves
+    ) {
+      cancelInteraction()
+      return
+    }
+    const dragging =
+      gesture.phase === 'dragging' ||
+      reachedDragThreshold(event.clientX, event.clientY, gesture.startX, gesture.startY)
+    if (!dragging) return
+    selectedSlot.value = null
+    const target = hitTestSlot(event.clientX, event.clientY, bounds, current.gridSize)
+    pointerGesture.value = {
+      ...gesture,
+      phase: 'dragging',
+      x: event.clientX,
+      y: event.clientY,
+      targetSlot:
+        target !== null && target !== gesture.sourceSlot && !isSlotLocked(current.tiles, target)
+          ? target
+          : null,
+    }
+  }
+
+  function endPointer(event: PointerInput, bounds: BoardBounds) {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      cancelPointer(event.pointerId)
+      return
+    }
+    // 即使最后一次 move 尚未绘制，也用松手坐标重新校验阈值和目标。
+    movePointer(event, bounds)
+    const gesture = pointerGesture.value
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    pointerGesture.value = null
+    if (gesture.phase === 'dragging') {
+      if (gesture.targetSlot !== null) commitSwap({ ...gesture, targetSlot: gesture.targetSlot })
+    } else if (
+      state.value &&
+      hitTestSlot(event.clientX, event.clientY, bounds, state.value.gridSize) === gesture.sourceSlot
+    ) {
+      selectSlot(gesture.sourceSlot, gesture.sessionId)
+    }
+  }
+
   function requestRestart() {
     if (disposed || !state.value || settingsOpen.value || confirmation.value) return
     if (state.value.moves > 0 && !completed.value) confirmation.value = 'restart'
@@ -317,6 +431,7 @@ export function usePuzzleSession() {
   }
 
   onScopeDispose(() => {
+    cancelInteraction()
     disposed = true
     storage.close()
     invalidateImageRequest()
@@ -328,6 +443,7 @@ export function usePuzzleSession() {
     state: computed(() => state.value),
     imageResource: computed(() => imageResource.value),
     selectedSlot: computed(() => selectedSlot.value),
+    pointerGesture: computed(() => pointerGesture.value),
     candidateResource: computed(() => candidateResource.value),
     candidateConfig: computed(() => candidateConfig.value),
     candidateImageId: computed(() => candidateImageId.value),
@@ -354,6 +470,11 @@ export function usePuzzleSession() {
     closeOriginal,
     commitSwap,
     selectSlot,
+    beginPointer,
+    movePointer,
+    endPointer,
+    cancelPointer,
+    cancelInteraction,
     requestRestart,
     cancelConfirmation,
     confirmAction,

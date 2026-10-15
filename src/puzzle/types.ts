@@ -26,6 +26,36 @@ export interface SwapRequest {
   readonly targetSlot: SlotIndex
 }
 
+/** 视口 CSS 坐标中的棋盘内容区域，不含外框。 */
+export interface BoardBounds {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+export type PointerInput = Pick<
+  PointerEvent,
+  'pointerId' | 'pointerType' | 'isPrimary' | 'button' | 'clientX' | 'clientY'
+>
+
+export interface PointerGesture {
+  readonly pointerId: number
+  readonly sessionId: string
+  readonly expectedMoves: number
+  readonly sourceSlot: SlotIndex
+  readonly phase: 'pressed' | 'dragging'
+  readonly startX: number
+  readonly startY: number
+  readonly x: number
+  readonly y: number
+  readonly offsetX: number
+  readonly offsetY: number
+  readonly width: number
+  readonly height: number
+  readonly targetSlot: SlotIndex | null
+}
+
 export interface BuiltinImageMetadata {
   readonly id: string
   readonly displayName: string
