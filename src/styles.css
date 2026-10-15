@@ -18,10 +18,137 @@
     color: var(--color-ink);
     background-color: var(--color-page);
     font-synthesis: none;
+    --tile-correct-brightness: 0.5;
+    --tile-normal-brightness: 1;
+    --color-grid-line: rgb(23 24 27 / 75%);
   }
 
   body {
     min-width: 320px;
     margin: 0;
   }
+}
+
+@layer components {
+  .action-button {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-outline bg-surface px-5 py-2.5 text-sm font-medium text-ink hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent;
+  }
+
+  .action-button-primary {
+    @apply border-accent bg-accent text-page hover:border-accent;
+  }
+}
+
+.puzzle-board {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-size), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--grid-size), minmax(0, 1fr));
+  width: 100%;
+  max-width: 640px;
+  isolation: isolate;
+  outline: 1px solid var(--color-outline);
+  background: var(--color-surface);
+}
+
+.puzzle-board.is-complete {
+  outline-color: var(--color-success);
+}
+
+.puzzle-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.puzzle-slot[aria-disabled='true'] {
+  cursor: default;
+}
+
+.puzzle-tile-image {
+  position: absolute;
+  inset: 0;
+  background-image: var(--puzzle-image);
+  background-size: var(--slice-size) var(--slice-size);
+  background-repeat: no-repeat;
+  filter: brightness(var(--tile-normal-brightness));
+  pointer-events: none;
+}
+
+.puzzle-slot.is-correct .puzzle-tile-image {
+  filter: brightness(var(--tile-correct-brightness));
+}
+
+.puzzle-board.is-complete .puzzle-tile-image {
+  filter: brightness(var(--tile-normal-brightness));
+}
+
+/* 格线覆盖图像，不参与格位尺寸，归位区域的背景坐标因此保持连续。 */
+.puzzle-slot::after {
+  position: absolute;
+  inset: 0;
+  border: 0 solid var(--color-grid-line);
+  content: '';
+  pointer-events: none;
+}
+
+.puzzle-slot.has-right-edge::after {
+  border-right-width: 1px;
+}
+
+.puzzle-slot.has-bottom-edge::after {
+  border-bottom-width: 1px;
+}
+
+.puzzle-slot.is-selected::before,
+.puzzle-slot:focus-visible::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border: 3px solid var(--color-accent);
+  content: '';
+  pointer-events: none;
+}
+
+.puzzle-slot:focus-visible {
+  outline: none;
+}
+
+.puzzle-slot:focus-visible:not(.is-selected)::before {
+  border-style: dashed;
+}
+
+.puzzle-progress {
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  appearance: none;
+  background: var(--color-outline);
+  color: var(--color-accent);
+}
+
+.puzzle-progress::-webkit-progress-bar {
+  background: var(--color-outline);
+}
+
+.puzzle-progress::-webkit-progress-value {
+  background: var(--color-accent);
+}
+
+.puzzle-progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
+
+.restart-dialog {
+  width: min(400px, calc(100% - 32px));
+  margin: auto;
+}
+
+.restart-dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
 }

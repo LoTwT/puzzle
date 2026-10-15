@@ -1,6 +1,6 @@
 # puzzle
 
-一个正在实现的单人 Web 拼图游戏。当前完成 PR01 工程基础，页面仅展示准备状态。
+一个正在实现的单人 Web 拼图游戏。当前可使用彩色几何图片，以默认 4×4 辅助开局点选交换、归位锁定，完成一局后重新打乱。
 
 使用 `.node-version` 指定的 Node.js 和 `package.json` 中 `packageManager` 指定的 pnpm。首次配置环境见[开发指南](docs/development.md#环境与安装)。
 
@@ -17,6 +17,8 @@ pnpm preview
 ```
 
 `ci` 会生成 `dist/`，生产预览默认位于 <http://localhost:4173>。端口被占用时以终端输出为准。
+
+单独运行规则与会话测试使用 `pnpm test`，开发时可用 `pnpm test:watch` 监听变更。其余选图、输入、保存与动效功能按 PR 计划继续实施。
 
 - [开发指南](docs/development.md)：安装、命令、提交钩子与验证方式。
 - [首版规格](docs/specs/web-puzzle-v1.md)：玩法、行为参数与验收要求。
