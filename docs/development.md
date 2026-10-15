@@ -17,6 +17,8 @@ pnpm install --frozen-lockfile
 
 应用使用 Vue 3、Vite 和 Tailwind CSS 的官方 Vite 插件。TypeScript 固定在 6.0.3，因为当前 vue-tsc 依赖 TypeScript 的 JavaScript 编译器 API，尚不兼容 TypeScript 7；后续升级应同时验证模板检查。[兼容性记录](https://github.com/vuejs/language-tools/issues/6124)
 
+Vitest 固定在 5.0.1，与现有 Node 24、Vite 8 配合使用；测试配置合并在 `vite.config.ts`，不另设工具链。[Vitest 版本要求](https://vitest.dev/guide/migration/#prerequisites)
+
 新增或升级依赖使用 `pnpm add`、`pnpm add -D` 或 `pnpm update`，一并提交清单和唯一的 `pnpm-lock.yaml`。全新环境和 CI 均按锁文件安装。
 
 ## 开发与生产预览
@@ -25,7 +27,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-开发入口默认为 <http://localhost:5173>，支持热更新。当前页面仅有深色基础与准备状态，玩法按 [PR 计划](specs/web-puzzle-v1-pr-plan.md) 后续接入。
+开发入口默认为 <http://localhost:5173>，支持热更新。当前直接进入彩色几何图片的 4×4 辅助开局，支持两次点选交换与重开；完整选图、保存、其他输入和动效按 [PR 计划](specs/web-puzzle-v1-pr-plan.md) 接入。
 
 生产预览先生成构建，再启动静态预览服务器：
 
@@ -50,11 +52,15 @@ Vite 的 `base` 为 `./`，构建产物使用相对资源路径，供域名根�
 | `pnpm lint`         | 运行 oxlint，警告也使检查失败                            |
 | `pnpm lint:fix`     | 使用 oxlint 的安全自动修复，剩余警告仍使检查失败         |
 | `pnpm typecheck`    | 先检查应用与 Vue 模板，再检查 Node 工具配置              |
+| `pnpm test`         | 在 Node 环境运行规则与会话单元测试                       |
+| `pnpm test:watch`   | 监听源文件变更并重跑相关单元测试                         |
 | `pnpm build`        | 用 Vite 构建一次，输出 `dist/`                           |
 | `pnpm preview`      | 在本地预览已有生产构建                                   |
-| `pnpm run ci`       | 依次执行格式检查、lint、类型检查、构建，失败即停止       |
+| `pnpm run ci`       | 依次执行格式、lint、类型、单测、构建，失败即停止         |
 
-PR01 没有规则或测试用例，因此没有 `test` 命令。PR02 加入真实规则测试后接入 Vitest 和 CI；浏览器回归入口在 PR04 接入。
+Vitest 只收集 `src/**/*.test.ts`，使用显式导入的测试 API，无需 DOM 模拟器或浏览器。规则测试使用可注入随机源验证开局与交换不变量；会话测试验证重复和过期提交、点选、重开与资源释放。浏览器回归入口在 PR04 接入，当前浏览器验收脚本保留在临时目录，不纳入 CI。
+
+第一张内置图片位于 `public/images/geometry.png`，为本项目原创的静态几何画面。资源标识、版本与尺寸统一由 `src/puzzle/images.ts` 维护；文件已符合首版标准化约束，加载后解码核对尺寸，并通过资源的 `release()` 回收对象 URL。重开复用当前图片，卸载释放资源。其余内置图片和上传标准化在 PR03 实施。
 
 ## 类型与样式约定
 
@@ -82,4 +88,4 @@ oxfmt 使用两个空格、单引号、无分号，开启导入排序与基于 `
 
 [GitHub Actions](../.github/workflows/ci.yml) 在 PR、main 推送和手动触发时运行单个 Ubuntu job，使用只读仓库权限、pnpm store 缓存，并取消同一 PR 或分支的旧任务。CI 设置 `SKIP_INSTALL_SIMPLE_GIT_HOOKS=1`，按锁文件安装后运行 `pnpm run ci`，不安装钩子或浏览器，不生成覆盖率报告，不上传构建归档。
 
-按变更行为选择验证。PR01 使用项目命令、实际浏览器打开和临时 Git 仓库验证钩子，验收辅助脚本不加入仓库。实际结果维护在 [PR 实施记录](specs/web-puzzle-v1-pr-plan.md#pr01工程基础与轻量检查)。视觉反馈与手机实测留到首版整体验收，模拟视口不能替代真机结论，也不阻塞此前 PR 的实施和合并。
+按变更行为选择验证。规则与会话逻辑通过单元测试检查，图片切片、点选、对话框焦点和页面适配在实际浏览器中检查；验收辅助脚本不加入仓库。实际结果维护在 [PR 实施记录](specs/web-puzzle-v1-pr-plan.md)。视觉反馈与手机实测留到首版整体验收，模拟视口不能替代真机结论，也不阻塞此前 PR 的实施和合并。
