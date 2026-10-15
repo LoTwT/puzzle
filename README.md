@@ -22,7 +22,7 @@ pnpm preview
 
 鼠标、触控笔和单指均可拖动；键盘用 Tab 进入棋盘，方向键移动，Enter 或空格选中及交换，Escape 取消。长图可以先点选来源，从棋盘外侧滚动页面，再点选目标。浏览器双指缩放保持可用，拖到边缘不会自动滚屏。
 
-单独运行规则、输入、会话与存档校验使用 `pnpm test`，开发时可用 `pnpm test:watch`。浏览器回归使用 `pnpm test:e2e`（Chromium）或 `pnpm test:e2e:all`（三引擎），首次需按[开发指南](docs/development.md#浏览器回归)安装对应浏览器。两条命令均先构建一次，再独立使用 4175 端口，结束后关闭。时间动效与跨浏览器、真机验收按 PR 计划继续实施。
+单独运行规则、输入、会话与存档校验使用 `pnpm test`，开发时可用 `pnpm test:watch`。浏览器回归使用 `pnpm test:e2e`（Chromium）或 `pnpm test:e2e:all`（三引擎），首次需按[开发指南](docs/development.md#浏览器回归)安装对应浏览器。两条命令均先构建一次，再独立使用 4175 端口，结束后关闭。[动效与状态收尾](docs/development.md#动效与收尾)已接入，跨浏览器、真机及最终验收按 PR 计划继续推进。
 
 - [开发指南](docs/development.md)：安装、命令、提交钩子与验证方式。
 - [首版规格](docs/specs/web-puzzle-v1.md)：玩法、行为参数与验收要求。

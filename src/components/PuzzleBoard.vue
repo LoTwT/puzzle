@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 
+import { MOTION } from '../puzzle/constants'
 import { acceptsPointer, adjacentSlot, hitTestSlot, reachedDragThreshold } from '../puzzle/input'
+import {
+  createMotionGroup,
+  type BoardMotion,
+  type MotionOutcome,
+  type PuzzlePhase,
+} from '../puzzle/motion'
 import { getCorrectSlots } from '../puzzle/rules'
 import type {
   BoardBounds,
@@ -21,6 +28,10 @@ const props = defineProps<{
   completed: boolean
   interactive: boolean
   showOriginal: boolean
+  motion: BoardMotion | null
+  reducedMotion: boolean
+  phase: PuzzlePhase
+  covered: boolean
 }>()
 
 const emit = defineEmits<{
@@ -30,9 +41,15 @@ const emit = defineEmits<{
   pointerEnd: [event: PointerInput, bounds: BoardBounds]
   cancelPointer: [pointerId?: number]
   cancelInteraction: []
+  finishMotion: [id: number, sessionId: string]
+  settleMotion: [id: number, sessionId: string]
 }>()
 
 const board = useTemplateRef('board')
+const movingLayer = useTemplateRef('moving-layer')
+const fullImage = useTemplateRef('full-image')
+const completionFrame = useTemplateRef('completion-frame')
+const sweep = useTemplateRef('sweep')
 const focusedSlot = shallowRef<SlotIndex>(0)
 let capturedPointer: number | null = null
 let moveFrame: number | null = null
@@ -42,6 +59,19 @@ const dragging = computed(() =>
   props.pointerGesture?.phase === 'dragging' ? props.pointerGesture : null,
 )
 const correctSlots = computed(() => new Set(getCorrectSlots(props.state.tiles)))
+const visibleCorrectSlots = computed(() => {
+  const slots = new Set(correctSlots.value)
+  if (props.motion?.kind === 'swapping')
+    for (const slot of props.motion.newlyCorrect) slots.delete(slot)
+  return slots
+})
+const hiddenSlots = computed(() =>
+  props.motion?.kind === 'swapping'
+    ? [props.motion.swap.sourceSlot, props.motion.swap.targetSlot]
+    : props.motion?.kind === 'returning'
+      ? [props.motion.gesture.sourceSlot]
+      : [],
+)
 const boardStyle = computed(() => ({
   '--grid-size': props.state.gridSize,
   '--puzzle-image': `url("${props.imageResource.url}")`,
@@ -49,16 +79,212 @@ const boardStyle = computed(() => ({
   aspectRatio: `${props.imageResource.image.width} / ${props.imageResource.image.height}`,
 }))
 
-const floatingStyle = computed(() => {
-  const gesture = dragging.value
-  if (!gesture) return {}
-  return {
-    width: `${gesture.width}px`,
-    height: `${gesture.height}px`,
-    transform: `translate3d(${gesture.x - gesture.offsetX}px, ${gesture.y - gesture.offsetY}px, 0)`,
-    ...tileStyle(props.state.tiles[gesture.sourceSlot]!),
+const placement = createMotionGroup()
+const pickup = createMotionGroup()
+const localEffects = createMotionGroup()
+let floating: HTMLDivElement | null = null
+let drawingFrame: number | null = null
+let motionEpoch = 0
+
+const translate = (x: number, y: number) => `translate3d(${x}px, ${y}px, 0)`
+const tileImages = () => board.value!.querySelectorAll<HTMLElement>('.puzzle-tile-image')
+
+function createMovingTile(tile: TileId, width: number, height: number, lifted = false) {
+  const node = document.createElement('div')
+  node.className = lifted ? 'puzzle-floating-tile' : 'puzzle-moving-tile'
+  Object.assign(node.style, { width: `${width}px`, height: `${height}px` })
+  const image = document.createElement('div')
+  image.className = 'puzzle-moving-image'
+  Object.assign(image.style, tileStyle(tile))
+  node.append(image)
+  movingLayer.value!.append(node)
+  return node
+}
+
+function positionFloating(gesture: PointerGesture, tile: TileId) {
+  if (!floating) {
+    floating = createMovingTile(tile, gesture.width, gesture.height, true)
+    const image = floating.firstElementChild as HTMLElement
+    image.style.transformOrigin = `${gesture.offsetX}px ${gesture.offsetY}px`
+    if (!props.reducedMotion) {
+      image.style.scale = String(MOTION.pickupScale)
+      pickup.animate(image, [{ scale: '1' }, { scale: String(MOTION.pickupScale) }], {
+        duration: MOTION.pickup,
+        easing: MOTION.moveEasing,
+      })
+    }
   }
-})
+  floating.style.transform = translate(gesture.x - gesture.offsetX, gesture.y - gesture.offsetY)
+  return floating
+}
+
+function clearDrawingFrame() {
+  if (drawingFrame !== null) cancelAnimationFrame(drawingFrame)
+  drawingFrame = null
+}
+
+function clearMovingTiles() {
+  clearDrawingFrame()
+  pickup.cancel()
+  movingLayer.value?.replaceChildren()
+  floating = null
+}
+
+function stopPlacement() {
+  motionEpoch++
+  placement.cancel()
+  clearMovingTiles()
+}
+
+function settleVisuals() {
+  stopPlacement()
+  localEffects.cancel()
+  const current = props.motion
+  if (current) emit('settleMotion', current.id, current.sessionId)
+}
+
+function playCorrectEffects(slots: readonly SlotIndex[]) {
+  const images = tileImages()
+  for (const slot of slots) {
+    const image = images[slot]!
+    const button = image.parentElement!
+    const glow = button.querySelector<HTMLElement>('.puzzle-correct-glow')!
+    button.dataset.correctEffect = 'true'
+    localEffects.animate(
+      image,
+      [
+        { filter: 'brightness(var(--tile-normal-brightness))' },
+        { filter: 'brightness(var(--tile-correct-brightness))' },
+      ],
+      { duration: MOTION.correct, easing: MOTION.opacityEasing },
+    )
+    localEffects.animate(
+      glow,
+      [{ opacity: 0.15 }, { opacity: 1, offset: 0.28 }, { opacity: 0 }],
+      { duration: MOTION.correct, easing: MOTION.opacityEasing },
+      () => {
+        delete button.dataset.correctEffect
+      },
+    )
+  }
+}
+
+function playMotion(current: BoardMotion) {
+  const epoch = ++motionEpoch
+  let settled = false
+  placement.cancel()
+  clearDrawingFrame()
+  if (current.kind !== 'swapping' && current.kind !== 'returning') clearMovingTiles()
+  if (
+    (current.kind !== 'swapping' && current.kind !== 'returning') ||
+    (current.kind === 'swapping' && current.completes)
+  )
+    localEffects.cancel()
+  const done = (outcome: MotionOutcome) => {
+    if (settled || epoch !== motionEpoch || props.motion !== current) return
+    settled = true
+    clearMovingTiles()
+    if (outcome === 'finished' && current.kind === 'swapping' && !current.completes)
+      playCorrectEffects(current.newlyCorrect)
+    if (outcome === 'finished') emit('finishMotion', current.id, current.sessionId)
+    else emit('settleMotion', current.id, current.sessionId)
+  }
+  if (props.reducedMotion) {
+    done('cancelled')
+    return
+  }
+  if (current.kind === 'entering') {
+    placement.animate(
+      board.value!,
+      [{ opacity: 0 }, { opacity: 1 }],
+      {
+        duration: MOTION.enter,
+        easing: MOTION.opacityEasing,
+      },
+      done,
+    )
+  } else if (current.kind === 'original-in' || current.kind === 'original-out') {
+    placement.animate(
+      fullImage.value!,
+      [
+        { opacity: current.kind === 'original-in' ? 0 : 1 },
+        { opacity: current.kind === 'original-in' ? 1 : 0 },
+      ],
+      { duration: MOTION.original, easing: MOTION.opacityEasing },
+      done,
+    )
+  } else if (current.kind === 'completing') {
+    tileImages().forEach((image, slot) => {
+      placement.animate(
+        image,
+        [
+          {
+            filter: `brightness(var(--tile-${current.newlyCorrect.includes(slot) ? 'normal' : 'correct'}-brightness))`,
+          },
+          { filter: 'brightness(var(--tile-normal-brightness))' },
+        ],
+        { duration: MOTION.complete, easing: MOTION.opacityEasing },
+      )
+    })
+    placement.animate(
+      sweep.value!,
+      [{ transform: 'translateX(-100%)' }, { transform: 'translateX(100%)' }],
+      { duration: MOTION.complete, easing: MOTION.moveEasing },
+    )
+    placement.animate(
+      sweep.value!,
+      [{ opacity: 0 }, { opacity: 0.45, offset: 0.2 }, { opacity: 0 }],
+      { duration: MOTION.complete, easing: MOTION.opacityEasing },
+    )
+    placement.animate(
+      completionFrame.value!,
+      [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }],
+      { duration: MOTION.complete, easing: MOTION.opacityEasing },
+      done,
+    )
+  } else if (current.kind === 'swapping' || current.kind === 'returning') {
+    const rect = bounds()
+    const width = rect.width / props.state.gridSize
+    const height = rect.height / props.state.gridSize
+    const position = (slot: SlotIndex) =>
+      translate(
+        rect.left + (slot % props.state.gridSize) * width,
+        rect.top + Math.floor(slot / props.state.gridSize) * height,
+      )
+    const sourceSlot =
+      current.kind === 'swapping' ? current.swap.sourceSlot : current.gesture.sourceSlot
+    const sourceTile = current.kind === 'swapping' ? current.sourceTile : current.tile
+    const source = current.gesture
+      ? positionFloating(current.gesture, sourceTile)
+      : createMovingTile(sourceTile, width, height)
+    const from = current.gesture ? source.style.transform : position(sourceSlot)
+    const to = position(current.kind === 'swapping' ? current.swap.targetSlot : sourceSlot)
+    const sourceImage = source.firstElementChild as HTMLElement
+    const scale = getComputedStyle(sourceImage).scale
+    pickup.cancel()
+    sourceImage.style.scale = '1'
+    source.style.transform = to
+    const duration = current.kind === 'swapping' ? MOTION.swap : MOTION.return
+    const options = { duration, easing: MOTION.moveEasing }
+    placement.animate(sourceImage, [{ scale }, { scale: '1' }], options)
+    let remaining = current.kind === 'swapping' ? 2 : 1
+    const landed = (outcome: MotionOutcome) => {
+      if (outcome === 'cancelled') done(outcome)
+      else if (--remaining === 0) done('finished')
+    }
+    placement.animate(source, [{ transform: from }, { transform: to }], options, landed)
+    if (current.kind === 'swapping') {
+      const target = createMovingTile(current.targetTile, width, height)
+      target.style.transform = position(sourceSlot)
+      placement.animate(
+        target,
+        [{ transform: position(current.swap.targetSlot) }, { transform: position(sourceSlot) }],
+        options,
+        landed,
+      )
+    }
+  }
+}
 
 // 棋盘使用外部 outline，无 padding/border；其 DOMRect 正好是图片内容区域。
 function bounds(): BoardBounds {
@@ -144,10 +370,12 @@ function onPointerCancel(event: PointerEvent) {
 
 function cancelForGeometryChange() {
   emit('cancelPointer')
+  settleVisuals()
 }
 
 function cancelForBlur() {
   emit('cancelInteraction')
+  settleVisuals()
 }
 
 function onVisibilityChange() {
@@ -161,7 +389,8 @@ function onKeydown(event: KeyboardEvent, slot: SlotIndex) {
     emit('cancelInteraction')
   } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
     event.preventDefault()
-    if (!props.pointerGesture) focusSlot(adjacentSlot(slot, event.key, props.state.gridSize))
+    if (!props.pointerGesture && !props.motion)
+      focusSlot(adjacentSlot(slot, event.key, props.state.gridSize))
   } else if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
     if (!event.repeat && props.interactive && !props.pointerGesture)
@@ -189,14 +418,58 @@ watch(
   },
 )
 watch(
+  dragging,
+  (gesture) => {
+    if (props.motion) return
+    if (!gesture) clearMovingTiles()
+    else if (drawingFrame === null)
+      drawingFrame = requestAnimationFrame(() => {
+        drawingFrame = null
+        const current = dragging.value
+        if (current && !props.motion)
+          positionFloating(current, props.state.tiles[current.sourceSlot]!)
+      })
+  },
+  { flush: 'post' },
+)
+watch(
+  () => props.motion,
+  (current) => {
+    if (current) playMotion(current)
+    else stopPlacement()
+  },
+  { flush: 'post' },
+)
+watch(
+  () => props.reducedMotion,
+  (reduced) => {
+    if (reduced) {
+      settleVisuals()
+      if (dragging.value)
+        positionFloating(dragging.value, props.state.tiles[dragging.value.sourceSlot]!)
+    }
+  },
+  { flush: 'post' },
+)
+watch(
+  () => props.covered,
+  (covered) => {
+    if (covered) localEffects.cancel()
+  },
+)
+watch(
   () => props.state.sessionId,
   () => {
     releaseCapture()
+    stopPlacement()
+    localEffects.cancel()
     focusedSlot.value = 0
   },
+  { flush: 'pre' },
 )
 
 onMounted(() => {
+  if (props.motion) playMotion(props.motion)
   let previous = bounds()
   resizeObserver = new ResizeObserver(() => {
     const current = bounds()
@@ -212,8 +485,10 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   releaseCapture()
+  stopPlacement()
+  localEffects.cancel()
   resizeObserver?.disconnect()
   window.removeEventListener('scroll', cancelForGeometryChange, true)
   window.removeEventListener('resize', cancelForGeometryChange)
@@ -232,14 +507,17 @@ function tileStyle(tile: TileId) {
 function showRightEdge(slot: SlotIndex): boolean {
   return (
     (slot + 1) % props.state.gridSize !== 0 &&
-    !(correctSlots.value.has(slot) && correctSlots.value.has(slot + 1))
+    !(visibleCorrectSlots.value.has(slot) && visibleCorrectSlots.value.has(slot + 1))
   )
 }
 
 function showBottomEdge(slot: SlotIndex): boolean {
   return (
     slot + props.state.gridSize < props.state.tiles.length &&
-    !(correctSlots.value.has(slot) && correctSlots.value.has(slot + props.state.gridSize))
+    !(
+      visibleCorrectSlots.value.has(slot) &&
+      visibleCorrectSlots.value.has(slot + props.state.gridSize)
+    )
   )
 }
 
@@ -265,7 +543,8 @@ function slotLabel(slot: SlotIndex, tile: TileId): string {
     <div
       ref="board"
       class="puzzle-board"
-      :class="{ 'is-complete': completed }"
+      :class="{ 'is-complete': completed, 'is-completing': motion?.kind === 'completing' }"
+      v-bind="{ 'data-phase': phase }"
       :style="boardStyle"
       role="group"
       aria-label="拼图棋盘"
@@ -284,7 +563,8 @@ function slotLabel(slot: SlotIndex, tile: TileId): string {
         type="button"
         class="puzzle-slot"
         :class="{
-          'is-correct': correctSlots.has(slot),
+          'is-correct': visibleCorrectSlots.has(slot),
+          'is-moving': hiddenSlots.includes(slot),
           'is-selected': selectedSlot === slot,
           'is-drag-source': dragging?.sourceSlot === slot,
           'is-drop-target': dragging?.targetSlot === slot,
@@ -301,21 +581,25 @@ function slotLabel(slot: SlotIndex, tile: TileId): string {
         @click.prevent="onClick($event, slot)"
       >
         <span class="puzzle-tile-image" :style="tileStyle(tile)" aria-hidden="true"></span>
+        <span class="puzzle-correct-glow" aria-hidden="true"></span>
       </button>
       <img
         v-if="showOriginal || completed"
+        ref="full-image"
         class="puzzle-full-image"
         :src="imageResource.url"
         :alt="`${imageResource.image.displayName}，${completed ? '拼图完成' : '完整图片'}`"
         draggable="false"
       />
+      <div class="puzzle-completion-effects" aria-hidden="true">
+        <div ref="sweep" class="puzzle-sweep"></div>
+      </div>
+      <div ref="completion-frame" class="puzzle-completion-frame" aria-hidden="true"></div>
       <div
-        v-if="dragging"
+        ref="moving-layer"
         class="pointer-events-none fixed inset-0 z-30 overflow-hidden"
         aria-hidden="true"
-      >
-        <div class="puzzle-floating-tile" :style="floatingStyle"></div>
-      </div>
+      ></div>
     </div>
   </div>
 </template>

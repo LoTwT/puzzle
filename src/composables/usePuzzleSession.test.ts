@@ -76,6 +76,150 @@ beforeEach(() => {
 afterEach(() => {
   for (const scope of scopes.splice(0)) scope.stop()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('动效阶段与提交隔离', () => {
+  let changePreference: (event: { matches: boolean }) => void
+  const removeListener = vi.fn<(...args: unknown[]) => void>()
+
+  beforeEach(() => {
+    removeListener.mockReset()
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: (_: string, listener: typeof changePreference) => {
+        changePreference = listener
+      },
+      removeEventListener: removeListener,
+    }))
+  })
+
+  async function restored(tiles = [1, 2, 0, 4, 3, 5, 7, 6, 8]) {
+    storage.read.mockResolvedValue({
+      version: 1,
+      image: resource.image,
+      state: { sessionId: 'motion-fixture', gridSize: 3, startMode: 'random', tiles, moves: 7 },
+    })
+    const result = setup()
+    await result.session.initialize()
+    return result
+  }
+
+  it('交换先提交并保存，落位期间拒绝重入、换局与覆盖层，结束即可继续', async () => {
+    const { session } = await restored()
+    const request = { sessionId: 'motion-fixture', expectedMoves: 7, sourceSlot: 0, targetSlot: 1 }
+    expect(session.commitSwap(request)).toBe(true)
+    expect(session.state.value?.tiles).toEqual([2, 1, 0, 4, 3, 5, 7, 6, 8])
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    expect(session.phase.value).toBe('swapping')
+    session.cancelPointer(1) // 正常释放后的 lostpointercapture 不影响已提交落位。
+    expect(session.phase.value).toBe('swapping')
+    expect(session.commitSwap({ ...request, expectedMoves: 8, targetSlot: 2 })).toBe(false)
+    session.selectSlot(2, 'motion-fixture')
+    session.openSettings()
+    session.toggleOriginal()
+    session.requestRestart()
+    expect(session.selectedSlot.value).toBeNull()
+    expect(session.settingsOpen.value || session.originalOpen.value).toBe(false)
+    expect(session.confirmation.value).toBeNull()
+    const motion = session.motion.value!
+    session.finishMotion(motion.id, motion.sessionId)
+    expect(session.canInteract.value).toBe(true)
+    expect(storage.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('最后交换立即逻辑完成，落位后才进入完整反馈，结束后才开放完成操作', async () => {
+    const { session } = await restored([0, 1, 2, 3, 4, 5, 6, 8, 7])
+    session.selectSlot(7, 'motion-fixture')
+    session.selectSlot(8, 'motion-fixture')
+    expect(session.completed.value).toBe(true)
+    expect(session.visualCompleted.value).toBe(false)
+    expect(storage.save.mock.calls[0]?.[0].state.tiles).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    const landing = session.motion.value!
+    session.finishMotion(landing.id, landing.sessionId)
+    expect(session.phase.value).toBe('completing')
+    expect(session.canUseActions.value).toBe(false)
+    session.finishMotion(landing.id, landing.sessionId)
+    expect(session.phase.value).toBe('completing')
+    const completion = session.motion.value!
+    session.finishMotion(completion.id, completion.sessionId)
+    expect(session.visualCompleted.value).toBe(true)
+    expect(session.canUseActions.value).toBe(true)
+  })
+
+  it.each([false, true])('已提交落位中断直接稳定，完成=%s，迟到回调不影响新局', async (final) => {
+    const { session } = await restored(final ? [1, 0, 2, 3, 4, 5, 6, 7, 8] : undefined)
+    session.commitSwap({
+      sessionId: 'motion-fixture',
+      expectedMoves: 7,
+      sourceSlot: 0,
+      targetSlot: 1,
+    })
+    const committed = session.state.value
+    const old = session.motion.value!
+    session.settleMotion(old.id, old.sessionId)
+    expect(session.state.value).toBe(committed)
+    expect(session.visualCompleted.value).toBe(final)
+    expect(session.canUseActions.value).toBe(true)
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    session.requestRestart()
+    if (!final) session.confirmAction()
+    const entering = session.motion.value
+    session.finishMotion(old.id, old.sessionId)
+    session.settleMotion(old.id, old.sessionId)
+    expect(session.motion.value).toBe(entering)
+    expect(session.state.value?.moves).toBe(0)
+  })
+
+  it('非法释放进入返回，期间不保存，系统收尾后可操作', async () => {
+    const { session } = await restored()
+    const bounds = { left: 0, top: 0, width: 300, height: 150 }
+    const pointer: PointerInput = {
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      clientX: 20,
+      clientY: 20,
+    }
+    const before = session.state.value
+    session.beginPointer(pointer, bounds, 'motion-fixture')
+    session.endPointer({ ...pointer, clientX: -20 }, bounds)
+    expect(session.phase.value).toBe('returning')
+    expect(session.canInteract.value).toBe(false)
+    const returning = session.motion.value!
+    session.settleMotion(returning.id, returning.sessionId)
+    expect(session.state.value).toBe(before)
+    expect(session.phase.value).toBe('ready')
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('媒体设置在落位中改变立即收尾；reduce 下新局和最后交换都不等待动效', async () => {
+    const { session, scope } = await restored([1, 0, 2, 3, 4, 5, 6, 7, 8])
+    session.commitSwap({
+      sessionId: 'motion-fixture',
+      expectedMoves: 7,
+      sourceSlot: 0,
+      targetSlot: 1,
+    })
+    changePreference({ matches: true })
+    expect(session.visualCompleted.value).toBe(true)
+    expect(session.motion.value).toBeNull()
+    session.requestRestart()
+    expect(session.phase.value).toBe('ready')
+    scope.stop()
+    expect(removeListener).toHaveBeenCalledWith('change', changePreference)
+  })
+
+  it.each([false, true])('恢复局面不发布任何动效，完成=%s；明确新局才入场', async (final) => {
+    const { session } = await restored(final ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : undefined)
+    expect(session.motion.value).toBeNull()
+    expect(session.visualCompleted.value).toBe(final)
+    expect(storage.save).not.toHaveBeenCalled()
+    session.requestRestart()
+    if (!final) session.confirmAction()
+    expect(session.motion.value?.kind).toBe('entering')
+  })
 })
 
 describe('指针手势提交与中断', () => {
@@ -214,10 +358,18 @@ describe('指针手势提交与中断', () => {
     },
   )
 
-  it('原图、设置、重开确认取消手势；取消对话框后旧释放仍无效', async () => {
+  it('手势期间不开放原图、设置或重开；主动取消后覆盖层互斥且不接受旧释放', async () => {
     const session = await restored()
     for (const overlay of ['original', 'settings', 'confirmation']) {
       session.beginPointer(pointer(30), bounds, 'input-fixture')
+      if (overlay === 'original') session.toggleOriginal()
+      else if (overlay === 'settings') session.openSettings()
+      else session.requestRestart()
+      expect(session.pointerGesture.value?.phase).toBe('pressed')
+      expect(session.originalOpen.value).toBe(false)
+      expect(session.settingsOpen.value).toBe(false)
+      expect(session.confirmation.value).toBeNull()
+      session.cancelPointer()
       if (overlay === 'original') session.toggleOriginal()
       else if (overlay === 'settings') session.openSettings()
       else session.requestRestart()
@@ -236,6 +388,7 @@ describe('指针手势提交与中断', () => {
     const session = await restored()
     session.beginPointer(pointer(30), bounds, 'input-fixture')
     session.movePointer(pointer(130), bounds)
+    session.cancelPointer()
     session.requestRestart()
     session.confirmAction()
     const next = session.state.value
@@ -544,7 +697,7 @@ describe('候选设置与图片资源', () => {
     expect(session.state.value).toBe(next)
   })
 
-  it('原图清空选择并禁止交换；切到设置互斥，关闭后原局可操作', async () => {
+  it('原图清空选择并禁止交换；返回拼图才可打开设置，关闭后原局可操作', async () => {
     const { session } = setup()
     await session.initialize()
     session.requestStart()
@@ -556,6 +709,10 @@ describe('候选设置与图片资源', () => {
     expect(session.canInteract.value).toBe(false)
     session.selectSlot(second, old.sessionId)
     expect(session.state.value).toBe(old)
+    session.openSettings()
+    expect(session.originalOpen.value).toBe(true)
+    expect(session.settingsOpen.value).toBe(false)
+    session.closeOriginal()
     session.openSettings()
     expect(session.originalOpen.value).toBe(false)
     session.toggleOriginal()

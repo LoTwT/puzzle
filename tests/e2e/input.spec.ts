@@ -199,6 +199,8 @@ test('键盘单停靠点，锁定格可聚焦，最后一步后焦点留在确�
   await page.keyboard.press('Enter')
   await expect(page.getByText('交换 0 次', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '重新打乱', exact: true })).toBeFocused()
+  await expect(page.locator('.puzzle-board')).toHaveAttribute('data-phase', 'ready')
+  await expect(page.getByRole('button', { name: '重新打乱', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('button', { name: '查看原图' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
