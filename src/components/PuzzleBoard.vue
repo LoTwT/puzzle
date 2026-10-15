@@ -10,6 +10,7 @@ const props = defineProps<{
   selectedSlot: SlotIndex | null
   completed: boolean
   interactive: boolean
+  showOriginal: boolean
 }>()
 
 const emit = defineEmits<{
@@ -74,9 +75,17 @@ function slotLabel(slot: SlotIndex, tile: TileId): string {
       :aria-label="slotLabel(slot, tile)"
       :aria-pressed="selectedSlot === slot"
       :aria-disabled="!interactive || correctSlots.has(slot)"
+      :inert="showOriginal || completed"
       @click="emit('select', slot, state.sessionId)"
     >
       <span class="puzzle-tile-image" :style="tileStyle(tile)" aria-hidden="true"></span>
     </button>
+    <img
+      v-if="showOriginal || completed"
+      class="puzzle-full-image"
+      :src="imageResource.url"
+      :alt="`${imageResource.image.displayName}，${completed ? '拼图完成' : '完整图片'}`"
+      draggable="false"
+    />
   </div>
 </template>

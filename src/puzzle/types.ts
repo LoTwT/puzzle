@@ -35,15 +35,16 @@ export interface BuiltinImageMetadata {
   readonly height: number
 }
 
-export interface PuzzleImage {
+interface NormalizedImage {
   readonly id: string
-  readonly source: 'builtin'
   readonly displayName: string
-  readonly assetVersion: number
   readonly blob: Blob
   readonly width: number
   readonly height: number
 }
+
+export type PuzzleImage = NormalizedImage &
+  ({ readonly source: 'builtin'; readonly assetVersion: number } | { readonly source: 'upload' })
 
 /** 对象 URL 只属于当前视图的资源，不是图片数据的一部分。 */
 export interface PuzzleImageResource {
