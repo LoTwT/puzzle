@@ -19,7 +19,14 @@ const {
   recoveryError,
   saveError,
   correctSlots,
-  completed,
+  visualCompleted,
+  motion,
+  reducedMotion,
+  phase,
+  canUseActions,
+  canToggleOriginal,
+  finishMotion,
+  settleMotion,
   canInteract,
   canStart,
   confirmation,
@@ -159,7 +166,11 @@ watch(confirmation, async (action) => {
         :image-resource="imageResource"
         :selected-slot="selectedSlot"
         :pointer-gesture="pointerGesture"
-        :completed="completed"
+        :completed="visualCompleted"
+        :motion="motion"
+        :reduced-motion="reducedMotion"
+        :phase="phase"
+        :covered="settingsOpen || originalOpen || !!confirmation"
         :interactive="canInteract"
         :show-original="originalOpen"
         @select="selectSlot"
@@ -168,27 +179,41 @@ watch(confirmation, async (action) => {
         @pointer-end="endPointer"
         @cancel-pointer="cancelPointer"
         @cancel-interaction="cancelInteraction"
+        @finish-motion="finishMotion"
+        @settle-motion="settleMotion"
       />
 
-      <div v-if="completed" class="mt-6 text-center" role="status">
+      <div v-if="visualCompleted" class="mt-6 text-center" role="status">
         <p class="text-xl font-semibold text-success">拼图完成</p>
         <p class="mt-1 text-sm text-muted">{{ state.moves }} 次交换，拼回完整画面。</p>
       </div>
 
       <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
         <button
-          v-if="!completed"
+          v-if="!visualCompleted"
           class="action-button"
           type="button"
           :aria-pressed="originalOpen"
+          :aria-disabled="!canToggleOriginal"
           @click="toggleOriginal"
         >
           {{ originalOpen ? '返回拼图' : '查看原图' }}
         </button>
-        <button class="action-button" type="button" @click="restart">
-          {{ completed ? '再来一局' : '重新打乱' }}
+        <button
+          class="action-button"
+          type="button"
+          :aria-disabled="!canUseActions"
+          @click="restart"
+        >
+          {{ visualCompleted ? '再来一局' : '重新打乱' }}
         </button>
-        <button ref="settings-button" class="action-button" type="button" @click="showSettings">
+        <button
+          ref="settings-button"
+          class="action-button"
+          type="button"
+          :aria-disabled="!canUseActions"
+          @click="showSettings"
+        >
           换张图片
         </button>
       </div>

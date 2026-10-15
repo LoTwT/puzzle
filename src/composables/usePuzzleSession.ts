@@ -9,6 +9,7 @@ import {
   loadUploadedImage,
 } from '../puzzle/images'
 import { acceptsPointer, hitTestSlot, reachedDragThreshold } from '../puzzle/input'
+import type { BoardMotion, PuzzlePhase } from '../puzzle/motion'
 import {
   applySwap,
   createPuzzle,
@@ -37,6 +38,11 @@ export function usePuzzleSession() {
   const imageResource = shallowRef<PuzzleImageResource | null>(null)
   const selectedSlot = shallowRef<SlotIndex | null>(null)
   const pointerGesture = shallowRef<PointerGesture | null>(null)
+  const motion = shallowRef<BoardMotion | null>(null)
+  const motionPreference =
+    typeof matchMedia === 'undefined' ? null : matchMedia('(prefers-reduced-motion: reduce)')
+  const reducedMotion = shallowRef(motionPreference?.matches ?? true)
+  let motionRevision = 0
   const candidateResource = shallowRef<PuzzleImageResource | null>(null)
   const candidateConfig = shallowRef<PuzzleConfig>({
     gridSize: DEFAULT_GRID_SIZE,
@@ -58,6 +64,13 @@ export function usePuzzleSession() {
 
   const correctSlots = computed(() => getCorrectSlots(state.value?.tiles ?? []))
   const completed = computed(() => isComplete(state.value?.tiles ?? []))
+  const visualCompleted = computed(() => completed.value && motion.value === null)
+  const phase = computed<PuzzlePhase>(
+    () =>
+      motion.value?.kind ??
+      pointerGesture.value?.phase ??
+      (state.value ? (completed.value ? 'completed' : 'ready') : 'preparing'),
+  )
   const settingsOpen = computed(() => overlay.value === 'settings')
   const originalOpen = computed(() => overlay.value === 'original')
   const canInteract = computed(
@@ -65,8 +78,22 @@ export function usePuzzleSession() {
       !disposed &&
       state.value !== null &&
       !completed.value &&
+      !motion.value &&
       !overlay.value &&
       !confirmation.value,
+  )
+  const canUseActions = computed(
+    () =>
+      !disposed &&
+      !!state.value &&
+      !motion.value &&
+      !pointerGesture.value &&
+      !overlay.value &&
+      !confirmation.value,
+  )
+  const canToggleOriginal = computed(
+    () =>
+      !disposed && !completed.value && !motion.value && (canUseActions.value || originalOpen.value),
   )
   const canStart = computed(
     () =>
@@ -83,6 +110,30 @@ export function usePuzzleSession() {
     pointerGesture.value = null
     selectedSlot.value = null
   }
+
+  function motionIdentity() {
+    return { id: ++motionRevision, sessionId: state.value!.sessionId }
+  }
+
+  function settleMotion(id: number, sessionId: string) {
+    if (disposed || motion.value?.id !== id || state.value?.sessionId !== sessionId) return
+    if (motion.value.kind === 'original-out') overlay.value = null
+    motion.value = null
+  }
+
+  function finishMotion(id: number, sessionId: string) {
+    const current = motion.value
+    if (disposed || current?.id !== id || state.value?.sessionId !== sessionId) return
+    if (current.kind === 'swapping' && current.completes && !reducedMotion.value) {
+      motion.value = { ...motionIdentity(), kind: 'completing', newlyCorrect: current.newlyCorrect }
+    } else settleMotion(id, sessionId)
+  }
+
+  function onMotionPreference(event: MediaQueryListEvent) {
+    reducedMotion.value = event.matches
+    if (event.matches && motion.value) settleMotion(motion.value.id, motion.value.sessionId)
+  }
+  motionPreference?.addEventListener('change', onMotionPreference)
 
   // 外部滚动和不属于图块的 pointercancel 不应取消已完成的点选。
   function cancelPointer(pointerId?: number) {
@@ -175,6 +226,7 @@ export function usePuzzleSession() {
     invalidateImageRequest()
     cancelInteraction()
     state.value = createPuzzle({ ...config, sessionId: crypto.randomUUID() })
+    motion.value = reducedMotion.value ? null : { ...motionIdentity(), kind: 'entering' }
     selectedSlot.value = null
     overlay.value = null
     confirmation.value = null
@@ -234,7 +286,7 @@ export function usePuzzleSession() {
   }
 
   function openSettings() {
-    if (disposed || !state.value || confirmation.value || settingsOpen.value) return
+    if (!canUseActions.value || !state.value) return
     invalidateImageRequest()
     candidateConfig.value = { gridSize: state.value.gridSize, startMode: state.value.startMode }
     replaceCandidate(imageResource.value)
@@ -274,18 +326,24 @@ export function usePuzzleSession() {
   }
 
   function toggleOriginal() {
-    if (disposed || !state.value || completed.value || settingsOpen.value || confirmation.value)
+    if (!canToggleOriginal.value) return
+    if (originalOpen.value) {
+      closeOriginal()
       return
+    }
     selectedSlot.value = null
-    overlay.value = originalOpen.value ? null : 'original'
+    overlay.value = 'original'
+    if (!reducedMotion.value) motion.value = { ...motionIdentity(), kind: 'original-in' }
   }
 
   function closeOriginal() {
-    if (originalOpen.value) overlay.value = null
+    if (disposed || !originalOpen.value || motion.value) return
+    if (reducedMotion.value) overlay.value = null
+    else motion.value = { ...motionIdentity(), kind: 'original-out' }
   }
 
   /** 所有输入共用此入口；先提交局面，再由视图读取最终状态。 */
-  function commitSwap(request: SwapRequest): boolean {
+  function commitSwap(request: SwapRequest, gesture: PointerGesture | null = null): boolean {
     const current = state.value
     if (
       disposed ||
@@ -301,6 +359,20 @@ export function usePuzzleSession() {
     state.value = next
     selectedSlot.value = null
     saveCurrent()
+    if (!reducedMotion.value) {
+      motion.value = {
+        ...motionIdentity(),
+        kind: 'swapping',
+        swap: { ...request },
+        sourceTile: current.tiles[request.sourceSlot]!,
+        targetTile: current.tiles[request.targetSlot]!,
+        gesture,
+        newlyCorrect: [request.sourceSlot, request.targetSlot].filter(
+          (slot) => next.tiles[slot] === slot,
+        ),
+        completes: isComplete(next.tiles),
+      }
+    }
     return true
   }
 
@@ -405,7 +477,15 @@ export function usePuzzleSession() {
     if (!gesture || gesture.pointerId !== event.pointerId) return
     pointerGesture.value = null
     if (gesture.phase === 'dragging') {
-      if (gesture.targetSlot !== null) commitSwap({ ...gesture, targetSlot: gesture.targetSlot })
+      if (gesture.targetSlot !== null)
+        commitSwap({ ...gesture, targetSlot: gesture.targetSlot }, gesture)
+      else if (!reducedMotion.value)
+        motion.value = {
+          ...motionIdentity(),
+          kind: 'returning',
+          gesture,
+          tile: state.value!.tiles[gesture.sourceSlot]!,
+        }
     } else if (
       state.value &&
       hitTestSlot(event.clientX, event.clientY, bounds, state.value.gridSize) === gesture.sourceSlot
@@ -415,7 +495,7 @@ export function usePuzzleSession() {
   }
 
   function requestRestart() {
-    if (disposed || !state.value || settingsOpen.value || confirmation.value) return
+    if (!canUseActions.value || !state.value) return
     if (state.value.moves > 0 && !completed.value) confirmation.value = 'restart'
     else startPuzzle(state.value)
   }
@@ -433,6 +513,8 @@ export function usePuzzleSession() {
   onScopeDispose(() => {
     cancelInteraction()
     disposed = true
+    motion.value = null
+    motionPreference?.removeEventListener('change', onMotionPreference)
     storage.close()
     invalidateImageRequest()
     for (const resource of new Set([imageResource.value, candidateResource.value]))
@@ -444,6 +526,14 @@ export function usePuzzleSession() {
     imageResource: computed(() => imageResource.value),
     selectedSlot: computed(() => selectedSlot.value),
     pointerGesture: computed(() => pointerGesture.value),
+    motion: computed(() => motion.value),
+    reducedMotion: computed(() => reducedMotion.value),
+    phase,
+    visualCompleted,
+    canUseActions,
+    canToggleOriginal,
+    finishMotion,
+    settleMotion,
     candidateResource: computed(() => candidateResource.value),
     candidateConfig: computed(() => candidateConfig.value),
     candidateImageId: computed(() => candidateImageId.value),
