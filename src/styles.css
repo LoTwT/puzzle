@@ -37,9 +37,18 @@
   .action-button-primary {
     @apply border-accent bg-accent text-page hover:border-accent;
   }
+
+  .action-button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .choice-option {
+    @apply flex min-h-11 items-center justify-center rounded-lg border border-outline bg-page px-1 py-2 text-center text-sm text-muted peer-checked:border-accent peer-checked:text-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent;
+  }
 }
 
 .puzzle-board {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(var(--grid-size), minmax(0, 1fr));
   grid-template-rows: repeat(var(--grid-size), minmax(0, 1fr));
@@ -48,6 +57,16 @@
   isolation: isolate;
   outline: 1px solid var(--color-outline);
   background: var(--color-surface);
+}
+
+.puzzle-full-image {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
 }
 
 .puzzle-board.is-complete {
@@ -144,11 +163,20 @@
   background: var(--color-accent);
 }
 
-.restart-dialog {
-  width: min(400px, calc(100% - 32px));
+.puzzle-dialog {
+  max-height: calc(100% - 32px);
   margin: auto;
+  overscroll-behavior: contain;
 }
 
-.restart-dialog::backdrop {
+.puzzle-dialog::backdrop {
   background: rgb(0 0 0 / 65%);
+}
+
+.settings-dialog {
+  width: min(600px, calc(100% - 32px));
+}
+
+.confirmation-dialog {
+  width: min(400px, calc(100% - 32px));
 }
