@@ -13,21 +13,39 @@ export const fixtureState: PuzzleState = {
   moves: 7,
 }
 
-export async function seedPuzzle(page: Page, state = fixtureState) {
+export async function seedPuzzle(
+  page: Page,
+  state = fixtureState,
+  size = { width: 96, height: 64 },
+) {
   await page.goto('/')
   await expect(page.getByRole('button', { name: '开始拼图', exact: true })).toBeEnabled()
   const bytes = [...(await readFile(fixturePath))]
   await page.evaluate(
-    async ({ bytes, state }) => {
+    async ({ bytes, state, size }) => {
+      let blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+      if (size.width !== 96 || size.height !== 64) {
+        const image = await createImageBitmap(blob)
+        const canvas = document.createElement('canvas')
+        canvas.width = size.width
+        canvas.height = size.height
+        canvas.getContext('2d')!.drawImage(image, 0, 0, size.width, size.height)
+        image.close()
+        blob = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob(
+            (result) => (result ? resolve(result) : reject(new Error('Fixture encoding failed.'))),
+            'image/png',
+          ),
+        )
+      }
       const saved: PuzzleSave = {
         version: 1,
         image: {
           id: 'fixture-image',
           source: 'upload',
           displayName: 'fixture.png',
-          blob: new Blob([new Uint8Array(bytes)], { type: 'image/png' }),
-          width: 96,
-          height: 64,
+          blob,
+          ...size,
         },
         state,
       }
@@ -50,7 +68,7 @@ export async function seedPuzzle(page: Page, state = fixtureState) {
         }
       })
     },
-    { bytes, state },
+    { bytes, state, size },
   )
   await page.reload()
   await expect(page.locator('header')).toContainText('fixture.png')

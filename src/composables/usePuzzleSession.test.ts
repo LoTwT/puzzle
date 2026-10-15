@@ -9,7 +9,7 @@ import {
   loadUploadedImage,
 } from '../puzzle/images'
 import { createPuzzleStorage } from '../puzzle/storage'
-import type { PuzzleImageResource, PuzzleSave, PuzzleState } from '../puzzle/types'
+import type { PointerInput, PuzzleImageResource, PuzzleSave, PuzzleState } from '../puzzle/types'
 import { usePuzzleSession } from './usePuzzleSession'
 
 vi.mock('../puzzle/images', async (importOriginal) => ({
@@ -76,6 +76,176 @@ beforeEach(() => {
 afterEach(() => {
   for (const scope of scopes.splice(0)) scope.stop()
   vi.restoreAllMocks()
+})
+
+describe('指针手势提交与中断', () => {
+  const bounds = { left: 10, top: 20, width: 300, height: 150 }
+  const pointer = (x: number, y = 40, extra: Partial<PointerInput> = {}): PointerInput => ({
+    pointerId: 1,
+    pointerType: 'mouse',
+    isPrimary: true,
+    button: 0,
+    clientX: x,
+    clientY: y,
+    ...extra,
+  })
+  async function restored() {
+    storage.read.mockResolvedValue({
+      version: 1,
+      image: resource.image,
+      state: {
+        sessionId: 'input-fixture',
+        gridSize: 3,
+        startMode: 'random',
+        tiles: [1, 2, 0, 4, 3, 5, 7, 6, 8],
+        moves: 7,
+      },
+    })
+    const { session } = setup()
+    await session.initialize()
+    return session
+  }
+
+  it('阈值下按点选处理，达到 6px 清除先前选择并采用实际来源', async () => {
+    const session = await restored()
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    session.endPointer(pointer(35.999), bounds)
+    expect(session.selectedSlot.value).toBe(0)
+    session.beginPointer(pointer(130), bounds, 'input-fixture')
+    session.movePointer(pointer(136), bounds)
+    expect(session.selectedSlot.value).toBeNull()
+    expect(session.pointerGesture.value).toMatchObject({
+      phase: 'dragging',
+      sourceSlot: 1,
+      offsetX: 20,
+      offsetY: 20,
+      width: 100,
+      height: 50,
+    })
+    session.endPointer(pointer(230), bounds)
+    session.endPointer(pointer(230), bounds)
+    expect(session.state.value?.tiles).toEqual([1, 0, 2, 4, 3, 5, 7, 6, 8])
+    expect(session.state.value?.moves).toBe(8)
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    expect(session.pointerGesture.value).toBeNull()
+  })
+
+  it('松手用实时坐标重新命中，移动与选择均不保存', async () => {
+    const session = await restored()
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    session.movePointer(pointer(130), bounds)
+    expect(session.pointerGesture.value?.targetSlot).toBe(1)
+    expect(storage.save).not.toHaveBeenCalled()
+    session.endPointer(pointer(230), bounds)
+    expect(session.state.value?.tiles).toEqual([0, 2, 1, 4, 3, 5, 7, 6, 8])
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    session.cancelPointer(1) // 正常 release 后的 lostcapture
+    expect(session.state.value?.moves).toBe(8)
+  })
+
+  it.each([
+    [30, 40],
+    [230, 90],
+    [9.99, 40],
+    [310, 40],
+    [30, 170],
+  ])('拖动释放在同格/锁定格/边框/界外 (%i, %i) 不提交', async (x, y) => {
+    const session = await restored()
+    const before = session.state.value
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    session.movePointer(pointer(130), bounds)
+    session.endPointer(pointer(x, y), bounds)
+    expect(session.state.value).toBe(before)
+    expect(session.selectedSlot.value).toBeNull()
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('次指针、鼠标非主键、锁定来源、不同 pointerId 均不接管手势', async () => {
+    const session = await restored()
+    for (const event of [
+      pointer(30, 40, { isPrimary: false }),
+      pointer(30, 40, { button: 2 }),
+      pointer(230, 90),
+    ]) {
+      session.beginPointer(event, bounds, 'input-fixture')
+      expect(session.pointerGesture.value).toBeNull()
+    }
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    session.beginPointer(pointer(130, 40, { pointerId: 2 }), bounds, 'input-fixture')
+    session.movePointer(pointer(130, 40, { pointerId: 2 }), bounds)
+    session.endPointer(pointer(130, 40, { pointerId: 2 }), bounds)
+    session.cancelPointer(2)
+    expect(session.pointerGesture.value).toMatchObject({
+      pointerId: 1,
+      sourceSlot: 0,
+      phase: 'pressed',
+    })
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('无活动手势的滚动/外部取消保留选择；滚动后点选按新坐标只提交一次', async () => {
+    const session = await restored()
+    session.selectSlot(0, 'input-fixture')
+    session.cancelPointer()
+    session.cancelPointer(99)
+    expect(session.selectedSlot.value).toBe(0)
+    const scrolled = { ...bounds, top: -100 }
+    session.beginPointer(pointer(130, -80), scrolled, 'input-fixture')
+    session.endPointer(pointer(130, -80), scrolled)
+    expect(session.state.value?.tiles).toEqual([2, 1, 0, 4, 3, 5, 7, 6, 8])
+    expect(storage.save).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['pressed', 'dragging'] as const)(
+    '%s 取消后迟到释放不提交，失焦取消已有选择',
+    async (phase) => {
+      const session = await restored()
+      session.selectSlot(2, 'input-fixture')
+      session.beginPointer(pointer(30), bounds, 'input-fixture')
+      if (phase === 'dragging') session.movePointer(pointer(130), bounds)
+      session.cancelPointer(1)
+      session.endPointer(pointer(230), bounds)
+      expect(session.selectedSlot.value).toBeNull()
+      expect(session.pointerGesture.value).toBeNull()
+      expect(storage.save).not.toHaveBeenCalled()
+      session.selectSlot(2, 'input-fixture')
+      session.cancelInteraction()
+      expect(session.selectedSlot.value).toBeNull()
+    },
+  )
+
+  it('原图、设置、重开确认取消手势；取消对话框后旧释放仍无效', async () => {
+    const session = await restored()
+    for (const overlay of ['original', 'settings', 'confirmation']) {
+      session.beginPointer(pointer(30), bounds, 'input-fixture')
+      if (overlay === 'original') session.toggleOriginal()
+      else if (overlay === 'settings') session.openSettings()
+      else session.requestRestart()
+      expect(session.pointerGesture.value).toBeNull()
+      session.beginPointer(pointer(130), bounds, 'input-fixture')
+      expect(session.pointerGesture.value).toBeNull()
+      session.closeOriginal()
+      session.closeSettings()
+      session.cancelConfirmation()
+      session.endPointer(pointer(230), bounds)
+    }
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('新局清除旧指针；旧版本提交和旧释放都不能改变新局', async () => {
+    const session = await restored()
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    session.movePointer(pointer(130), bounds)
+    session.requestRestart()
+    session.confirmAction()
+    const next = session.state.value
+    session.movePointer(pointer(230), bounds)
+    session.endPointer(pointer(230), bounds)
+    session.beginPointer(pointer(30), bounds, 'input-fixture')
+    expect(session.pointerGesture.value).toBeNull()
+    expect(session.state.value).toBe(next)
+    expect(storage.save).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('会话提交与点选', () => {
