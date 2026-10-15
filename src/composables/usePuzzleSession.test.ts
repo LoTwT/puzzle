@@ -3,18 +3,28 @@ import { effectScope, nextTick } from 'vue'
 
 import {
   BUILTIN_IMAGES,
+  createImageResource,
   ImagePreparationError,
   loadBuiltinImage,
   loadUploadedImage,
 } from '../puzzle/images'
-import type { PuzzleImageResource, PuzzleState } from '../puzzle/types'
+import { createPuzzleStorage } from '../puzzle/storage'
+import type { PuzzleImageResource, PuzzleSave, PuzzleState } from '../puzzle/types'
 import { usePuzzleSession } from './usePuzzleSession'
 
 vi.mock('../puzzle/images', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../puzzle/images')>()),
+  createImageResource: vi.fn<typeof createImageResource>(),
   loadBuiltinImage: vi.fn<typeof loadBuiltinImage>(),
   loadUploadedImage: vi.fn<typeof loadUploadedImage>(),
 }))
+
+vi.mock('../puzzle/storage', () => ({ createPuzzleStorage: vi.fn<typeof createPuzzleStorage>() }))
+const storage = {
+  read: vi.fn<() => Promise<unknown>>(),
+  save: vi.fn<(snapshot: PuzzleSave) => Promise<void>>(),
+  close: vi.fn<() => void>(),
+}
 
 const scopes: ReturnType<typeof effectScope>[] = []
 let resource: PuzzleImageResource
@@ -41,6 +51,10 @@ function unlockedPair(state: PuzzleState): [number, number] {
 }
 
 beforeEach(() => {
+  storage.read.mockReset().mockResolvedValue(undefined)
+  storage.save.mockReset().mockResolvedValue(undefined)
+  storage.close.mockReset()
+  vi.mocked(createPuzzleStorage).mockReturnValue(storage)
   vi.spyOn(Math, 'random').mockReturnValue(0)
   resource = {
     image: {
@@ -48,14 +62,15 @@ beforeEach(() => {
       source: 'builtin',
       displayName: '彩色几何',
       assetVersion: 1,
-      blob: new Blob(),
+      blob: new Blob(['png'], { type: 'image/png' }),
       width: 1440,
       height: 1080,
     },
     url: 'blob:test',
     release: vi.fn<() => void>(),
   }
-  vi.mocked(loadBuiltinImage).mockResolvedValue(resource)
+  vi.mocked(createImageResource).mockReset().mockResolvedValue(resource)
+  vi.mocked(loadBuiltinImage).mockReset().mockResolvedValue(resource)
 })
 
 afterEach(() => {
@@ -66,7 +81,7 @@ afterEach(() => {
 describe('会话提交与点选', () => {
   it('默认 4×4 辅助开局；重复交换请求只提交一次', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const state = currentState(session)
     expect(state.gridSize).toBe(4)
@@ -82,7 +97,7 @@ describe('会话提交与点选', () => {
 
   it('再点同格取消，点锁定格保留选择，点第二个可用格只交换一次', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const state = currentState(session)
     const [first, second] = unlockedPair(state)
@@ -102,7 +117,7 @@ describe('会话提交与点选', () => {
 
   it('无步数直接重开；旧会话事件不能修改新局', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const previous = currentState(session)
     session.requestRestart()
@@ -126,7 +141,7 @@ describe('会话提交与点选', () => {
 
   it('未完成且走过步才确认；取消保留排列、计数与选择，确认后配置不变', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const initial = currentState(session)
     const [first, second] = unlockedPair(initial)
@@ -157,7 +172,7 @@ describe('会话提交与点选', () => {
 
   it('经点选完成后停止输入，直接再来一局', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     let steps = 0
     while (!session.completed.value) {
@@ -184,10 +199,10 @@ describe('会话提交与点选', () => {
   it('图片加载可重试，资源随会话作用域释放', async () => {
     vi.mocked(loadBuiltinImage).mockRejectedValueOnce(new Error('Network failure'))
     const { session, scope } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     expect(session.loadError.value).toContain('请重试')
     expect(session.state.value).toBeNull()
-    await session.loadInitialImage()
+    await session.chooseBuiltin(BUILTIN_IMAGES[0]!)
     expect(session.loadError.value).toBe('')
     expect(session.state.value).toBeNull()
     session.requestStart()
@@ -204,7 +219,8 @@ describe('会话提交与点选', () => {
       }),
     )
     const { session, scope } = setup()
-    const pending = session.loadInitialImage()
+    const pending = session.initialize()
+    await vi.waitFor(() => expect(loadBuiltinImage).toHaveBeenCalled())
     scope.stop()
     resolveImage?.(resource)
     await pending
@@ -214,7 +230,7 @@ describe('会话提交与点选', () => {
 
   it('卸载后的点选与提交不再改变已释放的会话', async () => {
     const { session, scope } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const current = currentState(session)
     const [sourceSlot, targetSlot] = unlockedPair(current)
@@ -259,7 +275,7 @@ const plants = BUILTIN_IMAGES[2]!
 describe('候选设置与图片资源', () => {
   it('候选已就绪时卸载，延后的开始事件不能用已释放资源建局', async () => {
     const { session, scope } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     expect(session.canStart.value).toBe(true)
     scope.stop()
     session.requestStart()
@@ -269,7 +285,7 @@ describe('候选设置与图片资源', () => {
 
   it('首次只准备默认候选，明确开始后才创建局面；同一开始请求不重复建局', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     expect(session.state.value).toBeNull()
     expect(session.imageResource.value).toBeNull()
     expect(session.candidateResource.value).toBe(resource)
@@ -286,7 +302,7 @@ describe('候选设置与图片资源', () => {
 
   it('设置借用当前图片；取消配置后回到旧局，不回收仍在使用的图片', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const old = currentState(session)
     session.openSettings()
@@ -302,7 +318,7 @@ describe('候选设置与图片资源', () => {
 
   it('当前图与独立候选各自释放，替换需等旧视图退出', async () => {
     const { session, scope } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     session.openSettings()
     const next = otherResource('city-windows')
@@ -321,7 +337,7 @@ describe('候选设置与图片资源', () => {
 
   it('取消独立候选只释放候选；再次打开恢复当前配置', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     session.openSettings()
     const candidate = otherResource('plants')
@@ -335,7 +351,7 @@ describe('候选设置与图片资源', () => {
 
   it('新局有进度时只确认一次；取消保持局面且可修改候选', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const initial = currentState(session)
     const [sourceSlot, targetSlot] = unlockedPair(initial)
@@ -360,7 +376,7 @@ describe('候选设置与图片资源', () => {
 
   it('原图清空选择并禁止交换；切到设置互斥，关闭后原局可操作', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const old = currentState(session)
     const [first, second] = unlockedPair(old)
@@ -380,9 +396,11 @@ describe('候选设置与图片资源', () => {
 
   it('连续选图只采用最新成功请求，旧请求晚到须释放', async () => {
     const { session } = setup()
+    await session.initialize()
     const first = deferred<PuzzleImageResource>()
     const second = deferred<PuzzleImageResource>()
     const latest = otherResource('plants')
+    const late = otherResource('late-city')
     vi.mocked(loadBuiltinImage)
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
@@ -391,16 +409,16 @@ describe('候选设置与图片资源', () => {
     expect(session.canStart.value).toBe(false)
     second.resolve(latest)
     await b
-    first.resolve(resource)
+    first.resolve(late)
     await a
     expect(session.candidateResource.value).toBe(latest)
     expect(session.loading.value).toBe(false)
-    expect(resource.release).toHaveBeenCalledTimes(1)
+    expect(late.release).toHaveBeenCalledTimes(1)
   })
 
   it('旧请求失败不覆盖新预览；最新失败保持旧局且不能开始', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     const old = currentState(session)
     session.openSettings()
@@ -425,7 +443,7 @@ describe('候选设置与图片资源', () => {
 
   it('处理中关闭后重开并换局，晚到资源不能污染新局', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     session.requestStart()
     session.openSettings()
     const deferredImage = deferred<PuzzleImageResource>()
@@ -446,7 +464,7 @@ describe('候选设置与图片资源', () => {
 
   it('新局提交使同轮更早的图片任务失效', async () => {
     const { session } = setup()
-    await session.loadInitialImage()
+    await session.initialize()
     const pendingImage = deferred<PuzzleImageResource>()
     const late = otherResource('late-city')
     vi.mocked(loadBuiltinImage).mockReturnValueOnce(pendingImage.promise)
@@ -459,5 +477,158 @@ describe('候选设置与图片资源', () => {
     expect(session.state.value).toBe(started)
     expect(session.imageResource.value).toBe(resource)
     expect(late.release).toHaveBeenCalledTimes(1)
+  })
+})
+
+function savedState(): PuzzleSave {
+  return {
+    version: 1,
+    image: resource.image,
+    state: {
+      sessionId: 'restored',
+      gridSize: 3,
+      startMode: 'random',
+      tiles: [1, 0, 2, 3, 4, 5, 6, 7, 8],
+      moves: 7,
+    },
+  }
+}
+
+describe('恢复、提交保存与异步收尾', () => {
+  it('读取与图片恢复完成前不能开局、选图或保存；恢复不会触发保存', async () => {
+    const read = deferred<unknown>()
+    const decode = deferred<PuzzleImageResource>()
+    storage.read.mockReturnValueOnce(read.promise)
+    vi.mocked(createImageResource).mockReturnValueOnce(decode.promise)
+    const { session } = setup()
+    const initialization = session.initialize()
+    expect(session.initialize()).toBe(initialization)
+    session.requestStart()
+    await session.chooseBuiltin(city)
+    expect(loadBuiltinImage).not.toHaveBeenCalled()
+    expect(storage.save).not.toHaveBeenCalled()
+    const saved = savedState()
+    read.resolve(saved)
+    await vi.waitFor(() => expect(createImageResource).toHaveBeenCalled())
+    expect(session.restoring.value).toBe(true)
+    expect(session.state.value).toBeNull()
+    decode.resolve(resource)
+    await initialization
+    expect(session.restoring.value).toBe(false)
+    expect(session.state.value).toEqual(saved.state)
+    expect(session.imageResource.value).toBe(resource)
+    expect(session.canInteract.value).toBe(true)
+    expect(storage.save).not.toHaveBeenCalled()
+    session.requestRestart()
+    session.confirmAction()
+    expect(session.state.value).toMatchObject({ gridSize: 3, startMode: 'random', moves: 0 })
+    expect(storage.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('完成存档直接进入稳定完成状态', async () => {
+    const saved = savedState()
+    storage.read.mockResolvedValueOnce({
+      ...saved,
+      state: { ...saved.state, tiles: [0, 1, 2, 3, 4, 5, 6, 7, 8] },
+    })
+    const { session } = setup()
+    await session.initialize()
+    expect(session.completed.value).toBe(true)
+    expect(session.canInteract.value).toBe(false)
+    expect(session.selectedSlot.value).toBeNull()
+    expect(session.settingsOpen.value).toBe(false)
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('没有记录只准备选图；只有明确新局与合法交换保存', async () => {
+    const { session } = setup()
+    await session.initialize()
+    expect(storage.save).not.toHaveBeenCalled()
+    session.requestStart()
+    const initial = currentState(session)
+    expect(storage.save).toHaveBeenLastCalledWith({
+      version: 1,
+      image: resource.image,
+      state: initial,
+    })
+    session.toggleOriginal()
+    session.closeOriginal()
+    session.openSettings()
+    session.setCandidateConfig({ gridSize: 3, startMode: 'random' })
+    session.closeSettings()
+    session.commitSwap({ sessionId: 'old-session', expectedMoves: 0, sourceSlot: 0, targetSlot: 5 })
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    const [sourceSlot, targetSlot] = unlockedPair(initial)
+    const request = { sessionId: initial.sessionId, expectedMoves: 0, sourceSlot, targetSlot }
+    session.commitSwap(request)
+    session.commitSwap(request)
+    expect(storage.save).toHaveBeenCalledTimes(2)
+    expect(storage.save.mock.calls.map(([save]) => save.state.moves)).toEqual([0, 1])
+    expect(storage.save.mock.calls[0]?.[0].state).toEqual(initial)
+  })
+
+  it('读取失败可开始新局，成功保存后清除提示', async () => {
+    storage.read.mockRejectedValueOnce(new Error('unavailable'))
+    const { session } = setup()
+    await session.initialize()
+    expect(session.recoveryError.value).toBe('上次进度无法恢复，请开始新局')
+    expect(session.saveError.value).toBe('本局暂时无法保存，刷新后可能丢失进度')
+    expect(session.canStart.value).toBe(true)
+    session.requestStart()
+    await nextTick()
+    expect(session.recoveryError.value).toBe('')
+    expect(session.saveError.value).toBe('')
+  })
+
+  it('坏记录只显示提示；解码失败也不写入替代局面', async () => {
+    storage.read.mockResolvedValueOnce({ ...savedState(), version: 2 })
+    const first = setup().session
+    await first.initialize()
+    expect(first.recoveryError.value).toContain('无法恢复')
+    expect(first.state.value).toBeNull()
+    storage.read.mockResolvedValueOnce(savedState())
+    vi.mocked(createImageResource).mockRejectedValueOnce(new Error('broken image'))
+    const second = setup().session
+    await second.initialize()
+    expect(second.recoveryError.value).toContain('无法恢复')
+    expect(second.state.value).toBeNull()
+    expect(storage.save).not.toHaveBeenCalled()
+  })
+
+  it('写入失败不回滚内存；旧回调不能清除较新失败，后续成功可清除提示', async () => {
+    const firstSave = deferred<void>()
+    storage.save.mockReturnValueOnce(firstSave.promise).mockRejectedValueOnce(new Error('quota'))
+    const { session } = setup()
+    await session.initialize()
+    session.requestStart()
+    session.requestRestart()
+    const current = currentState(session)
+    await nextTick()
+    expect(session.saveError.value).toContain('暂时无法保存')
+    firstSave.resolve()
+    await nextTick()
+    expect(session.saveError.value).toContain('暂时无法保存')
+    expect(session.state.value).toBe(current)
+    const [sourceSlot, targetSlot] = unlockedPair(current)
+    session.commitSwap({ sessionId: current.sessionId, expectedMoves: 0, sourceSlot, targetSlot })
+    expect(session.state.value?.moves).toBe(1)
+    await nextTick()
+    expect(session.saveError.value).toBe('')
+  })
+
+  it('卸载关闭存储；迟到的恢复资源释放且不更新状态', async () => {
+    storage.read.mockResolvedValueOnce(savedState())
+    const decode = deferred<PuzzleImageResource>()
+    vi.mocked(createImageResource).mockReturnValueOnce(decode.promise)
+    const { session, scope } = setup()
+    const initialization = session.initialize()
+    await vi.waitFor(() => expect(createImageResource).toHaveBeenCalled())
+    scope.stop()
+    decode.resolve(resource)
+    await initialization
+    expect(storage.close).toHaveBeenCalledTimes(1)
+    expect(resource.release).toHaveBeenCalledTimes(1)
+    expect(session.state.value).toBeNull()
+    expect(storage.save).not.toHaveBeenCalled()
   })
 })

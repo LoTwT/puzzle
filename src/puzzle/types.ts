@@ -1,4 +1,4 @@
-import type { GRID_SIZES, START_MODES } from './constants'
+import type { GRID_SIZES, START_MODES } from './constants.ts'
 
 export type GridSize = (typeof GRID_SIZES)[number]
 export type StartMode = (typeof START_MODES)[number]
@@ -45,6 +45,12 @@ interface NormalizedImage {
 
 export type PuzzleImage = NormalizedImage &
   ({ readonly source: 'builtin'; readonly assetVersion: number } | { readonly source: 'upload' })
+
+export interface PuzzleSave {
+  readonly version: 1
+  readonly image: PuzzleImage
+  readonly state: PuzzleState
+}
 
 /** 对象 URL 只属于当前视图的资源，不是图片数据的一部分。 */
 export interface PuzzleImageResource {

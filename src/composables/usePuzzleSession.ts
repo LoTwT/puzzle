@@ -3,6 +3,7 @@ import { computed, nextTick, onScopeDispose, shallowRef } from 'vue'
 import { DEFAULT_GRID_SIZE, DEFAULT_START_MODE } from '../puzzle/constants'
 import {
   GEOMETRY_IMAGE,
+  createImageResource,
   imageErrorMessage,
   loadBuiltinImage,
   loadUploadedImage,
@@ -10,11 +11,14 @@ import {
 import {
   applySwap,
   createPuzzle,
+  createPuzzleSave,
   getCorrectSlots,
   isComplete,
   isSlotLocked,
   isValidSlot,
+  isValidPuzzleSave,
 } from '../puzzle/rules'
+import { createPuzzleStorage } from '../puzzle/storage'
 import type {
   BuiltinImageMetadata,
   PuzzleConfig,
@@ -38,6 +42,12 @@ export function usePuzzleSession() {
   const loadError = shallowRef('')
   const overlay = shallowRef<'settings' | 'original' | null>('settings')
   const confirmation = shallowRef<'restart' | 'new-game' | null>(null)
+  const restoring = shallowRef(true)
+  const recoveryError = shallowRef('')
+  const saveError = shallowRef('')
+  const storage = createPuzzleStorage()
+  let initialization: Promise<void> | null = null
+  let saveRevision = 0
   let imageRequest = 0
   let disposed = false
 
@@ -56,6 +66,7 @@ export function usePuzzleSession() {
   const canStart = computed(
     () =>
       !disposed &&
+      !restoring.value &&
       settingsOpen.value &&
       !!candidateResource.value &&
       !loading.value &&
@@ -83,16 +94,67 @@ export function usePuzzleSession() {
     loading.value = false
   }
 
+  function saveCurrent() {
+    if (disposed || restoring.value || !state.value || !imageResource.value) return
+    const snapshot = createPuzzleSave(imageResource.value.image, state.value)
+    const revision = ++saveRevision
+    const isCurrent = () =>
+      !disposed && revision === saveRevision && state.value?.sessionId === snapshot.state.sessionId
+    void storage.save(snapshot).then(
+      () => {
+        if (!isCurrent()) return
+        saveError.value = ''
+        recoveryError.value = ''
+      },
+      () => {
+        if (isCurrent()) saveError.value = '本局暂时无法保存，刷新后可能丢失进度'
+      },
+    )
+  }
+
+  async function restore() {
+    try {
+      const saved = await storage.read().catch((error: unknown) => {
+        if (!disposed) saveError.value = '本局暂时无法保存，刷新后可能丢失进度'
+        throw error
+      })
+      if (disposed) return
+      if (saved !== undefined) {
+        if (!isValidPuzzleSave(saved)) throw new Error('Invalid puzzle save.')
+        const snapshot = createPuzzleSave(saved.image, saved.state)
+        const resource = await createImageResource(snapshot.image)
+        if (disposed) {
+          resource.release()
+          return
+        }
+        imageResource.value = resource
+        state.value = snapshot.state
+        overlay.value = null
+      }
+    } catch {
+      if (!disposed) recoveryError.value = '上次进度无法恢复，请开始新局'
+    } finally {
+      if (!disposed) restoring.value = false
+    }
+    if (!disposed && !state.value) await loadInitialImage()
+  }
+
+  function initialize() {
+    if (!initialization) initialization = restore()
+    return initialization
+  }
+
   function startPuzzle(config: PuzzleConfig) {
     invalidateImageRequest()
     state.value = createPuzzle({ ...config, sessionId: crypto.randomUUID() })
     selectedSlot.value = null
     overlay.value = null
     confirmation.value = null
+    saveCurrent()
   }
 
   async function prepareImage(id: string | null, load: () => Promise<PuzzleImageResource>) {
-    if (disposed || !settingsOpen.value || confirmation.value) return
+    if (disposed || restoring.value || !settingsOpen.value || confirmation.value) return
     const request = ++imageRequest
     candidateImageId.value = id
     loading.value = true
@@ -116,7 +178,8 @@ export function usePuzzleSession() {
   }
 
   function chooseBuiltin(metadata: BuiltinImageMetadata) {
-    if (disposed || !settingsOpen.value || confirmation.value) return Promise.resolve()
+    if (disposed || restoring.value || !settingsOpen.value || confirmation.value)
+      return Promise.resolve()
     const reusable = [imageResource.value, candidateResource.value].find(
       (resource) =>
         resource?.image.source === 'builtin' &&
@@ -163,7 +226,8 @@ export function usePuzzleSession() {
   }
 
   function setCandidateConfig(config: PuzzleConfig) {
-    if (settingsOpen.value && !confirmation.value) candidateConfig.value = { ...config }
+    if (!disposed && !restoring.value && settingsOpen.value && !confirmation.value)
+      candidateConfig.value = { ...config }
   }
 
   function commitCandidate() {
@@ -207,6 +271,7 @@ export function usePuzzleSession() {
     if (!next) return false
     state.value = next
     selectedSlot.value = null
+    saveCurrent()
     return true
   }
 
@@ -253,6 +318,7 @@ export function usePuzzleSession() {
 
   onScopeDispose(() => {
     disposed = true
+    storage.close()
     invalidateImageRequest()
     for (const resource of new Set([imageResource.value, candidateResource.value]))
       resource?.release()
@@ -267,6 +333,9 @@ export function usePuzzleSession() {
     candidateImageId: computed(() => candidateImageId.value),
     loading: computed(() => loading.value),
     loadError: computed(() => loadError.value),
+    restoring: computed(() => restoring.value),
+    recoveryError: computed(() => recoveryError.value),
+    saveError: computed(() => saveError.value),
     confirmation: computed(() => confirmation.value),
     correctSlots,
     completed,
@@ -274,7 +343,7 @@ export function usePuzzleSession() {
     canStart,
     settingsOpen,
     originalOpen,
-    loadInitialImage,
+    initialize,
     chooseBuiltin,
     chooseUpload,
     openSettings,

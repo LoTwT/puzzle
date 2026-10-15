@@ -5,6 +5,7 @@ import {
   applySwap,
   canSwap,
   createPuzzle,
+  createPuzzleSave,
   getCorrectSlots,
   isComplete,
   isGridSize,
@@ -12,8 +13,9 @@ import {
   isStartMode,
   isValidPermutation,
   isValidPuzzleState,
+  isValidPuzzleSave,
 } from './rules'
-import type { GridSize, PuzzleState, RandomSource } from './types'
+import type { GridSize, PuzzleSave, PuzzleState, RandomSource } from './types'
 
 function seededRandom(seed: number): RandomSource {
   let value = seed >>> 0
@@ -226,5 +228,87 @@ describe('局面校验', () => {
     expect(() => createPuzzle({ sessionId: '', gridSize: 3, startMode: 'random' })).toThrow(
       RangeError,
     )
+  })
+})
+
+function validSave(): PuzzleSave {
+  return {
+    version: 1,
+    image: {
+      id: 'upload-fixture',
+      source: 'upload',
+      displayName: '小图.png',
+      blob: new Blob(['png'], { type: 'image/png' }),
+      width: 12,
+      height: 9,
+    },
+    state: stateWith([1, 0, 2, 3, 4, 5, 6, 7, 8], 2),
+  }
+}
+
+describe('存档结构与快照', () => {
+  it('接收上传、旧内置资源版本与完成局面；可解码性另由浏览器验证', () => {
+    const save = validSave()
+    expect(isValidPuzzleSave(save)).toBe(true)
+    expect(
+      isValidPuzzleSave({ ...save, image: { ...save.image, source: 'builtin', assetVersion: 2 } }),
+    ).toBe(true)
+    expect(isValidPuzzleSave({ ...save, state: stateWith([0, 1, 2, 3, 4, 5, 6, 7, 8], 4) })).toBe(
+      true,
+    )
+  })
+
+  it.each([undefined, null, {}, { version: 2 }, { version: '1' }])(
+    '拒绝外部无效记录 %j',
+    (value) => {
+      expect(isValidPuzzleSave(value)).toBe(false)
+    },
+  )
+
+  it.each([
+    { id: '' },
+    { displayName: ' ' },
+    { source: 'remote' },
+    { source: 'builtin' },
+    { source: 'builtin', assetVersion: 0 },
+    { source: 'builtin', assetVersion: 1.2 },
+    { source: 'builtin', assetVersion: Infinity },
+    { width: 0 },
+    { height: -1 },
+    { width: 1.5 },
+    { height: 2049 },
+    { width: '12' },
+    { blob: 'blob:expired-url' },
+    { blob: new Blob() },
+    { blob: new Blob(['png'], { type: 'image/jpeg' }) },
+  ])('拒绝非法图片元数据 %j', (image) => {
+    const save = validSave()
+    expect(isValidPuzzleSave({ ...save, image: { ...save.image, ...image } })).toBe(false)
+  })
+
+  it.each([
+    { sessionId: '' },
+    { gridSize: 7 },
+    { startMode: 'unknown' },
+    { tiles: [0, 0, 2, 3, 4, 5, 6, 7, 8] },
+    { tiles: [0] },
+    { moves: -1 },
+    { moves: 0.5 },
+    { moves: Number.MAX_SAFE_INTEGER + 1 },
+  ])('拒绝非法局面 %j', (state) => {
+    const save = validSave()
+    expect(isValidPuzzleSave({ ...save, state: { ...save.state, ...state } })).toBe(false)
+  })
+
+  it('提交时复制排列并只选持久化字段，排除 URL、选择与动效', () => {
+    const saved = validSave()
+    const tiles = [...saved.state.tiles]
+    const image = { ...saved.image, url: 'blob:temporary', release: () => {} }
+    const state = { ...saved.state, tiles, selectedSlot: 0, animation: {} }
+    const snapshot = createPuzzleSave(image, state)
+    tiles.reverse()
+    expect(snapshot).toEqual(saved)
+    expect(snapshot.image.blob).toBe(image.blob)
+    expect(snapshot.state.tiles).not.toBe(tiles)
   })
 })
