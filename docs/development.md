@@ -27,7 +27,7 @@ Vitest 固定在 5.0.1，与现有 Node 24、Vite 8 配合使用；测试配置�
 pnpm dev
 ```
 
-开发入口默认为 <http://localhost:5173>，支持热更新。当前先展示选图与开局设置，默认彩色几何、4×4、辅助开局。三张内置图和 JPEG、PNG、WebP 上传均可用，点击开始后才建局；棋盘支持两次点选、原图查看、换图和重开。保存恢复、其他输入和时间动效按 [PR 计划](specs/web-puzzle-v1-pr-plan.md) 接入。
+开发入口默认为 <http://localhost:5173>，支持热更新。当前先读取本地存档；无有效存档时展示选图与开局设置，默认彩色几何、4×4、辅助开局。三张内置图和 JPEG、PNG、WebP 上传均可用，点击开始后才建局；棋盘支持两次点选、原图查看、换图和重开。有效存档直接恢复棋盘；其他输入和时间动效按 [PR 计划](specs/web-puzzle-v1-pr-plan.md) 接入。
 
 生产预览先生成构建，再启动静态预览服务器：
 
@@ -51,14 +51,16 @@ Vite 的 `base` 为 `./`，构建产物使用相对资源路径，供域名根�
 | `pnpm format:check` | 只检查格式，不修改文件                                   |
 | `pnpm lint`         | 运行 oxlint，警告也使检查失败                            |
 | `pnpm lint:fix`     | 使用 oxlint 的安全自动修复，剩余警告仍使检查失败         |
-| `pnpm typecheck`    | 先检查应用与 Vue 模板，再检查 Node 工具配置              |
-| `pnpm test`         | 在 Node 环境运行规则与会话单元测试                       |
+| `pnpm typecheck`    | 先检查应用与 Vue 模板，再检查工具配置与 E2E 类型         |
+| `pnpm test`         | 在 Node 环境运行规则、会话与存档结构单元测试             |
 | `pnpm test:watch`   | 监听源文件变更并重跑相关单元测试                         |
 | `pnpm build`        | 用 Vite 构建一次，输出 `dist/`                           |
 | `pnpm preview`      | 在本地预览已有生产构建                                   |
+| `pnpm test:e2e`     | 构建一次，再执行 Chromium 浏览器回归                     |
+| `pnpm test:e2e:all` | 构建一次，再执行 Chromium、Firefox、WebKit 回归          |
 | `pnpm run ci`       | 依次执行格式、lint、类型、单测、构建，失败即停止         |
 
-Vitest 只收集 `src/**/*.test.ts`，使用显式导入的测试 API，无需 DOM 模拟器或浏览器。规则测试使用可注入随机源验证开局与交换不变量；会话测试验证重复和过期提交、点选、重开、候选确认、异步竞争与资源释放。浏览器回归入口在 PR04 接入，当前浏览器验收脚本保留在临时目录，不纳入 CI。
+Vitest 只收集 `src/**/*.test.ts`，使用显式导入的测试 API，无需 DOM 模拟器或浏览器。规则测试使用可注入随机源验证开局与交换不变量；会话测试验证重复和过期提交、点选、重开、候选确认、异步竞争、启动恢复、提交快照与资源释放。存档结构在 Node 中校验，图片真实解码、尺寸核对与 IndexedDB 事务由浏览器验证。
 
 ## 图片与候选设置
 
@@ -68,11 +70,40 @@ Vitest 只收集 `src/**/*.test.ts`，使用显式导入的测试 API，无需 D
 
 `usePuzzleSession` 分别持有当前图片和候选图片，设置组件只传入候选配置与操作事件。设置初始借用当前图片，重开继续复用它；关闭候选不会回收仍被棋盘使用的对象 URL。成功开始时交接候选资源，Vue 更新视图后再释放双方都不再引用的旧资源。卸载按资源对象去重释放，`release()` 本身也可重复调用。
 
-每次选择图片、关闭设置或建立新局都会使旧请求失效。浏览器解码不能主动中止，旧任务结束后立即释放结果，不能更新候选、错误提示或当前局面。失败时保留原局与上次预览，开始按钮禁用，用户可重新选图；网格和开局方式只在明确开始时提交。当前不写入 IndexedDB，刷新恢复在 PR04 接入。
+每次选择图片、关闭设置或建立新局都会使旧请求失效。浏览器解码不能主动中止，旧任务结束后立即释放结果，不能更新候选、错误提示或当前局面。失败时保留原局与上次预览，开始按钮禁用，用户可重新选图；网格和开局方式只在明确开始时提交。恢复图片直接使用存档中的标准化 Blob，经 `createImageResource` 实际解码、核对宽高后创建对象 URL，不重新缩放或从内置资源地址取图。读取或解码尚未结束时不开放选图与开始操作。
+
+## 本地保存与恢复
+
+数据与用户行为以[保存规格](specs/web-puzzle-v1.md#数据与本地保存)为准。`src/puzzle/storage.ts` 使用原生 IndexedDB；`PuzzleSave` 的 `version`、`image` 与 `state` 构成单条快照，`createPuzzleSave` 显式挑选字段并复制排列，排除对象 URL、候选、选择和动效状态。外部读取结果是 `unknown`，先做结构校验，再经图片模块解码。
+
+会话初始化只读取一次；没有记录则准备默认候选，有有效记录则直接恢复稳定局面。只有明确新局和唯一交换入口提交后调用保存，先更新内存，再进入本页写队列。队列以事务 `complete` 为成功，失败节点不会阻塞后续保存；提示只接受当前提交版本的回调。坏记录不删除，新局成功写入后才替换。原图、候选更改、取消和无效交换不会保存。
+
+作用域卸载后不再发起排队中的写入，已启动的事务允许完成；连接关闭及迟到的打开/图片回调均有清理。数据库版本变化时主动关闭连接，避免阻塞其他页面。没有依赖页面关闭事件的补写，刷新可能恢复到最后一个已完成事务，尚未保存的操作可能丢失。
+
+记录只在当前浏览器、当前站点内；不同协议、主机或端口（例如开发 5173 与预览 4173）使用不同的存储空间。多个标签页独立游玩，不实时同步；最近一次成功写入决定下次恢复的内容。读取或写入不可用时仍可开局、点选与重开，持续提示在下一次成功保存后清除。
+
+## 浏览器回归
+
+Playwright 固定为 `package.json` 中的精确版本。首次只验证 Chromium 时安装对应引擎；完整交付前再安装其余引擎：
+
+```sh
+pnpm exec playwright install chromium
+pnpm test:e2e
+
+# PR07 的三引擎回归
+pnpm exec playwright install firefox webkit
+pnpm test:e2e:all
+```
+
+两条测试命令先执行一次 `pnpm build`，再由 Playwright 启动本次 `dist/` 的 `vite preview --host 127.0.0.1 --port 4175 --strictPort`。配置固定 `reuseExistingServer: false`，端口占用即失败，不复用 5173/4173 或其他服务，结束后关闭测试服务。不要在 4175 上保留手动预览；正常开发与预览继续使用各自端口。[Playwright 服务配置](https://playwright.dev/docs/test-webserver)
+
+每例独立浏览器上下文，`tests/fixtures/puzzle.png` 是自生成的 96×64 小图。测试通过真实 IndexedDB 写入合法存档后刷新，从产品恢复入口固定局面，没有产品测试开关。持久用例覆盖点选一次交换、原图和取消设置、上传刷新恢复、完成恢复、事务失败后的继续游戏与下一次成功保存，以及坏图片/尺寸记录的保留。事务中止通过测试侧浏览器 API 注入，不替代真实图片解码。
+
+测试等待可观测 DOM、保存结果或事务状态；`retries: 0`，不使用固定休眠。失败截图和 trace 在 `test-results/`，HTML 报告在 `playwright-report/`，均已忽略；可用 `pnpm exec playwright show-report` 或 `pnpm exec playwright show-trace <trace.zip>` 查看。需要保留一次运行的证据时，先复制到独立目录，再运行下一轮。更细的事务时序验收脚本保留在临时目录，实际路径与结果见 [PR04 记录](specs/web-puzzle-v1-pr-plan.md#pr04本地保存与浏览器回归入口)。常规 CI 不安装或执行浏览器。
 
 ## 类型与样式约定
 
-应用的 [`tsconfig.json`](../tsconfig.json) 继承 Vue 官方 DOM 配置，仅显式加载 Vite 客户端类型，启用严格模板检查；[`tsconfig.node.json`](../tsconfig.node.json) 只检查 Vite 配置，使用 Node 类型和 NodeNext 模块解析。两者都开启 `strict` 与 `noUncheckedIndexedAccess`，不输出编译文件。Vite 构建不代替类型检查。
+应用的 [`tsconfig.json`](../tsconfig.json) 继承 Vue 官方 DOM 配置，仅显式加载 Vite 客户端类型，启用严格模板检查；[`tsconfig.node.json`](../tsconfig.node.json) 检查 Vite、Playwright 配置与 E2E 文件，使用 Node 类型、浏览器回调所需的 DOM 类型和 NodeNext 模块解析。两者都开启 `strict` 与 `noUncheckedIndexedAccess`，不输出编译文件。Vite 构建不代替类型检查。
 
 Vue 逻辑使用 `<script setup lang="ts">`，显式导入并使用相对路径。布局与响应式优先使用完整的 Tailwind 静态类名；主题颜色统一在 [`src/styles.css`](../src/styles.css) 维护。
 
@@ -96,4 +127,4 @@ oxfmt 使用两个空格、单引号、无分号，开启导入排序与基于 `
 
 [GitHub Actions](../.github/workflows/ci.yml) 在 PR、main 推送和手动触发时运行单个 Ubuntu job，使用只读仓库权限、pnpm store 缓存，并取消同一 PR 或分支的旧任务。CI 设置 `SKIP_INSTALL_SIMPLE_GIT_HOOKS=1`，按锁文件安装后运行 `pnpm run ci`，不安装钩子或浏览器，不生成覆盖率报告，不上传构建归档。
 
-按变更行为选择验证。规则与会话逻辑通过单元测试检查，图片切片、点选、对话框焦点和页面适配在实际浏览器中检查；验收辅助脚本不加入仓库。实际结果维护在 [PR 实施记录](specs/web-puzzle-v1-pr-plan.md)。视觉反馈与手机实测留到首版整体验收，模拟视口不能替代真机结论，也不阻塞此前 PR 的实施和合并。
+按变更行为选择验证。规则与会话逻辑通过单元测试检查，图片切片、点选、对话框焦点和页面适配在实际浏览器中检查；少量关键回归维护在 `tests/e2e/`，专项验收辅助脚本留在临时目录。实际结果维护在 [PR 实施记录](specs/web-puzzle-v1-pr-plan.md)。视觉反馈与手机实测留到首版整体验收，模拟视口不能替代真机结论，也不阻塞此前 PR 的实施和合并。

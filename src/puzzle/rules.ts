@@ -1,7 +1,9 @@
-import { ASSISTED_RESERVED_FRACTION, GRID_SIZES, START_MODES } from './constants'
+import { ASSISTED_RESERVED_FRACTION, GRID_SIZES, MAX_IMAGE_EDGE, START_MODES } from './constants'
 import type {
   GridSize,
   PuzzleConfig,
+  PuzzleImage,
+  PuzzleSave,
   PuzzleState,
   RandomSource,
   SlotIndex,
@@ -54,6 +56,65 @@ export function isValidPuzzleState(value: unknown): value is PuzzleState {
     Number.isSafeInteger(value.moves) &&
     value.moves >= 0
   )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isImageDimension(value: unknown): value is number {
+  return (
+    typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= MAX_IMAGE_EDGE
+  )
+}
+
+/** 这里只检查结构；恢复入口还必须实际解码 Blob 并核对尺寸。 */
+export function isValidPuzzleSave(value: unknown): value is PuzzleSave {
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.image)) return false
+  const image = value.image
+  return (
+    isValidPuzzleState(value.state) &&
+    isNonemptyString(image.id) &&
+    isNonemptyString(image.displayName) &&
+    image.blob instanceof Blob &&
+    image.blob.size > 0 &&
+    image.blob.type === 'image/png' &&
+    isImageDimension(image.width) &&
+    isImageDimension(image.height) &&
+    (image.source === 'upload' ||
+      (image.source === 'builtin' &&
+        typeof image.assetVersion === 'number' &&
+        Number.isSafeInteger(image.assetVersion) &&
+        image.assetVersion > 0))
+  )
+}
+
+/** 显式挑选持久化字段，复制排列；Blob 不可变，可与视图共享。 */
+export function createPuzzleSave(image: PuzzleImage, state: PuzzleState): PuzzleSave {
+  return {
+    version: 1,
+    image: {
+      id: image.id,
+      displayName: image.displayName,
+      blob: image.blob,
+      width: image.width,
+      height: image.height,
+      ...(image.source === 'builtin'
+        ? { source: 'builtin', assetVersion: image.assetVersion }
+        : { source: 'upload' }),
+    },
+    state: {
+      sessionId: state.sessionId,
+      gridSize: state.gridSize,
+      startMode: state.startMode,
+      tiles: [...state.tiles],
+      moves: state.moves,
+    },
+  }
 }
 
 function shuffle(values: readonly number[], random: RandomSource): number[] {

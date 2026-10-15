@@ -14,6 +14,9 @@ const {
   candidateImageId,
   loading,
   loadError,
+  restoring,
+  recoveryError,
+  saveError,
   correctSlots,
   completed,
   canInteract,
@@ -21,7 +24,7 @@ const {
   confirmation,
   settingsOpen,
   originalOpen,
-  loadInitialImage,
+  initialize,
   chooseBuiltin,
   chooseUpload,
   openSettings,
@@ -65,7 +68,7 @@ function handleEscape(event: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', handleEscape)
-  void loadInitialImage()
+  void initialize()
 })
 onUnmounted(() => window.removeEventListener('keydown', handleEscape))
 
@@ -111,7 +114,17 @@ watch(confirmation, async (action) => {
       <p v-else class="text-right text-sm text-muted">选一张图，慢慢拼好。</p>
     </header>
 
-    <template v-if="state && imageResource">
+    <p v-if="recoveryError" class="mb-4 text-sm leading-6 text-success" role="status">
+      {{ recoveryError }}
+    </p>
+    <p v-if="saveError" class="mb-4 text-sm leading-6 text-success" role="status">
+      {{ saveError }}
+    </p>
+    <p v-if="restoring" class="py-12 text-center text-sm text-muted" role="status">
+      正在读取上次进度…
+    </p>
+
+    <template v-else-if="state && imageResource">
       <div class="mb-5">
         <div
           class="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"

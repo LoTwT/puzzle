@@ -14,6 +14,8 @@
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest --watch",
+    "test:e2e": "pnpm build && playwright test --project=chromium",
+    "test:e2e:all": "pnpm build && playwright test",
     "ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "prepare": "simple-git-hooks"
   },
@@ -21,6 +23,7 @@
     "vue": "3.5.44"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.19.2",
     "@vitejs/plugin-vue": "6.0.10",
